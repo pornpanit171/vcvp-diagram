@@ -1,0 +1,14 @@
+image: plantuml/plantuml:latest
+
+pages:
+  stage: deploy
+  script:
+    - mkdir -p public/docs
+    - cp index.html public/index.html
+    - cp docs/vc-issuance-sequence.puml public/docs/vc-issuance-sequence.puml
+    - plantuml -tsvg public/docs/vc-issuance-sequence.puml
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
