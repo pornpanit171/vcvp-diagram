@@ -1,4 +1,4 @@
-name: Render PlantUML and deploy Pages
+name: Render PlantUML
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  render:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,9 +22,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y plantuml graphviz
 
-      - name: Render PUML to SVG
+      - name: Render all PUML files to SVG
         run: |
-          plantuml -tsvg docs/vc-issuance-sequence.puml
+          plantuml -tsvg docs/*.puml
 
       - name: Commit generated SVG
         uses: stefanzweifel/git-auto-commit-action@v5
