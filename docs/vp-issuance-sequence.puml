@@ -1,0 +1,313 @@
+@startuml
+title Digital Credential Verification (Backend-Assisted VP Creation with Mobile Holder Signing + Remote Credential Model)
+
+participant "Verifier User" as Verifier
+participant "Holder (Mobile Wallet)" as App #lightblue
+participant "Verifier System (Backend)" as Backend #lightgreen
+participant "Credential Platform (Procivis Core)" as Core #orange
+participant "Trust Registry / Trust List" as Trust #violet
+participant "Credential Status / Revocation Registry" as Revoke #pink
+
+note over Verifier,Backend #lightyellow: 1. Verifier requests driving license verification
+
+Verifier->Backend: Request verification [verificationType]\nCard / Document\nrequested ex-fields:\nlicenseNumber, firstName, lastName,\ndateOfBirth, expiryDate
+
+note over Backend #orange: 2. Backend validates Verifier before creating any proof request
+
+Backend->Backend: Validate Verifier identity\nauthenticated user / access token / session
+Backend->Backend: Check Verifier authorization\npermission to request Driving License verification
+Backend->Backend: Resolve verifier organization / DID / identifier
+
+Backend->Trust: Validate verifier against trust framework\nverifier organization / verifier DID / identifier
+Trust-->Backend: Verifier trust status\nTrusted / Untrusted / Unknown / Suspended
+
+alt Verifier not authorized or not trusted
+
+    note over Backend #pink: Request rejected before creating proof request
+
+    Backend-->Verifier: Reject request\nUnauthorized / Not trusted / Insufficient permission
+
+else Verifier authorized and trusted
+
+    note over Backend #lightyellow: 3. Backend resolves verification configuration
+
+    Backend->Backend: Resolve verification config\nverificationType = DRIVING_LICENSE\n-> credentialSchemaId\n-> required claim keys\n-> verifier DID / identifier\n-> trust framework / trust anchor\n-> protocol / transport
+
+    note over Backend,Core #orange: 4. Backend gets Credential Schema to map claim keys to claim IDs
+
+    Backend->Core: Get Credential Schema\n(GET /api/credential-schema/v1/{CREDENTIAL_SCHEMA_ID})
+    Core-->Backend: Credential Schema\nclaims[] with id + key
+
+    note over Backend #lightyellow: Backend maps requested claim keys to claimSchemaId\nlicenseNumber -> claims[].id\nfirstName -> claims[].id\nlastName -> claims[].id\ndateOfBirth -> claims[].id\nexpiryDate -> claims[].id
+
+    note over Backend,Core #orange: 5. Backend creates Proof Schema using claimSchema IDs
+
+    Backend->Core: Define verification requirements\n(POST /api/proof-schema/v1)\nclaimSchemas:\nlicenseNumber, firstName,\nlastName, dateOfBirth, expiryDate
+    Core-->Backend: Proof Schema ID
+
+    note over Backend,Core #orange: 6. Backend creates Proof Request
+
+    Backend->Core: Create verification request\n(POST /api/proof-request/v1)\nproofSchemaId + verifier DID / identifier\nprotocol + transport + trust framework
+    Core-->Backend: Proof Request ID
+
+    note over Backend,Core #orange: 7. Backend generates verification link
+
+    Backend->Core: Generate verification link\n(POST /api/proof-request/{id}/share)
+    Core-->Backend: Verification URL
+
+    Backend-->App: Send verification link\nQR / deep link / invitation URL
+
+    note over App,Backend #lightyellow: 8. Holder opens verification request
+
+    App->Backend: Open verification link\nverification URL / invitation payload
+
+    Backend->Core: Handle invitation\n(POST /api/interaction/v1/handle-invitation)
+    Core-->Backend: Interaction ID + requested claims\nVerifier DID / verifier metadata\nchallenge / nonce / domain
+
+    note over Backend #orange: 9. Backend re-validates Verifier trust before showing consent
+
+    Backend->Trust: Re-check verifier trust status\nusing verifier DID / identifier\ntrust framework / trust list
+    Trust-->Backend: Verifier trust status\nTrusted / Untrusted / Unknown / Suspended
+
+    alt Verifier becomes untrusted / unknown / suspended
+
+        note over Backend #pink: Ignore verification request and do not show consent to Holder
+
+        Backend-->App: Reject verification request\nVerifier is not trusted
+        Backend-->Verifier: Verification cancelled\nVerifier trust validation failed
+
+    else Verifier still trusted
+
+        Backend-->App: Return verification details\ntrusted verifier info\nrequested claims\nchallenge / nonce / domain\nlicenseNumber, firstName, lastName,\ndateOfBirth, expiryDate
+
+        note over App #lightyellow: 10. Holder Wallet validates request locally
+
+        App->App: Validate request metadata\nverifier information\nrequested claims\npurpose of request\nchallenge / nonce / domain
+        App->App: Check local wallet policy\nCan this verifier request these claims?
+
+        note over App #lightyellow: 11. Holder Wallet selects matching credential reference
+
+        App->App: Search local wallet credential references\nFind Driving License credential reference
+        App->App: Check credential reference metadata matches requested schema\nlicenseNumber, firstName, lastName,\ndateOfBirth, expiryDate
+        App->App: Select credential reference\nselectedCredentialId
+
+        note right of App #lightyellow: Remote Credential Model\nMobile Wallet stores credentialId + metadata only\nFull VC payload is NOT stored on device\nProcivis Core is source of truth for VC payload
+
+        alt No matching credential found
+
+            App-->Backend: Reject verification request\nNo matching credential available
+            Backend-->Verifier: Verification failed\nHolder has no matching credential
+
+        else Matching credential found
+
+            note over App #lightyellow: 12. Data Minimization and Selective Disclosure Decision
+
+            App->App: Determine requested claims only\nlicenseNumber, firstName, lastName,\ndateOfBirth, expiryDate
+            App->App: Exclude non-requested claims\nDo not disclose unnecessary data
+            App->App: Apply selective disclosure decision\nReveal only selected claims\nor request derived proof if supported
+
+            note over App #lightyellow: 13. Holder reviews requested data before sharing
+
+            App->App: Display verifier info\ntrusted status\npurpose\nrequested claims\nselected credential reference\nclaims to be disclosed
+            App->App: User decides\nAccept / Reject
+
+            alt User rejects / Deny sharing
+
+                note over App,Backend #pink: Flow terminated by Holder
+
+                App->Backend: Reject verification request\ninteractionId\nreason = User denied consent
+                Backend->Backend: Mark verification cancelled
+                Backend->Backend: Store consent audit log\nconsentDecision = REJECTED\ninteractionId\nproofRequestId\nverifierId\ntimestamp
+                Backend-->Verifier: Verification cancelled\nUser denied consent
+
+            else User accepts / Allow sharing
+
+                note over App,Backend #lightgreen: 14. Holder confirms consent and asks Backend to prepare VP
+
+                App->Backend: Confirm consent and request VP preparation\ninteractionId\nselectedCredentialId\nselected claims only:\nlicenseNumber, firstName, lastName,\ndateOfBirth, expiryDate\nconsentDecision = ACCEPTED
+
+                note over Backend #orange: 15. Backend validates consent and request state before preparing VP
+
+                Backend->Backend: Validate interaction state\nnot expired\nnot already used\nbelongs to this proof request
+                Backend->Backend: Validate verifier still trusted\nbefore preparing VP
+                Backend->Backend: Validate consent evidence\naccepted by authenticated holder\nmatches interactionId\nmatches selected claims
+                Backend->Backend: Validate selected claims\nmust be subset of requested claims only
+                Backend->Backend: Validate selectedCredentialId\nbelongs to holder account / holder identifier
+                Backend->Backend: Validate selectedCredentialId is remote reference\nstorageMode = REMOTE_CORE / REMOTE_REFERENCE
+
+                alt Request invalid / expired / verifier no longer trusted / consent invalid
+
+                    Backend-->App: Reject VP preparation\nRequest invalid / expired / verifier not trusted / consent invalid
+                    Backend-->Verifier: Verification cancelled\nRequest invalid or trust validation failed
+
+                else Request valid and consent accepted
+
+                    note over Backend,Core #orange: 16. Backend retrieves credential payload from Procivis Core after consent
+
+                    Backend->Backend: Prepare credential access request\ncredentialId = selectedCredentialId\nholderIdentifierId\ninteractionId\nproofRequestId\nconsentDecision = ACCEPTED
+
+                    Backend->Backend: Validate credential retrieval policy\nOnly retrieve after Holder consent\nOnly retrieve for this interaction\nOnly retrieve selected credential reference\nNo pre-consent credential payload access
+
+                    Backend->Core: Get credential payload\n(GET /api/credential/v1/{selectedCredentialId})
+                    Core-->Backend: Credential payload + metadata\nVC payload\nissuer DID / identifier\nschemaId\ncredential status reference\nvalidFrom / validUntil
+
+                    Backend->Backend: Validate retrieved credential payload\ncredentialId matches selectedCredentialId\nholder identifier matches Holder account\nschemaId matches requested credentialSchemaId\ncredential type matches DRIVING_LICENSE\ncredential is linked to selected holder identifier
+
+                    Backend->Backend: Store credential retrieval audit log\ncredentialId\ninteractionId\nproofRequestId\nholderIdentifierId\nretrievedAt\npurpose = VP_PREPARATION\nconsentDecision = ACCEPTED
+
+                    note right of Backend #lightyellow: Remote Credential Model\nVC payload is retrieved on-demand from Procivis Core\nBackend does not persist full VC payload after VP preparation\nMobile never receives full VC payload\nOnly selected claims are used for VP payload
+
+                    note over Backend #lightgreen: 17. Backend prepares canonical VP payload without holder signature
+
+                    Backend->Backend: Load requested claims from interaction\nlicenseNumber, firstName, lastName,\ndateOfBirth, expiryDate
+                    Backend->Backend: Apply data minimization\ninclude selected claims only\nexclude all non-requested fields
+                    Backend->Backend: Extract selected claims from retrieved VC payload\nlicenseNumber, firstName, lastName,\ndateOfBirth, expiryDate
+                    Backend->Backend: Prepare selective disclosure payload\nselected claims / disclosed attributes only
+                    Backend->Backend: Bind VP payload to request\ninteractionId + challenge / nonce + domain
+                    Backend->Backend: Add verifier audience / domain\npresentation is for this verifier only
+                    Backend->Backend: Create canonical VP signing payload\nunsigned VP / signing input / hash to sign
+
+                    note over Backend,App #lightgreen: 18. Backend sends signing challenge to Mobile Wallet
+
+                    Backend-->App: Return VP signing request\ninteractionId\ncanonical VP payload or hash\nchallenge / nonce / domain\nselected claims summary\nsigning algorithm\nexpiresAt
+
+                    note over App #lightgreen: 19. Mobile Wallet signs VP payload using holder private key
+
+                    App->App: Re-display final sharing summary\nVerifier info\nselected claims\npurpose\nsigning request expiry
+                    App->App: Validate signing request\ninteractionId matches\nchallenge / nonce / domain matches\nselected claims unchanged
+                    App->App: Validate signing request references selectedCredentialId\nsame credential reference user consented to share
+                    App->App: Load holder private key\nSecure Enclave / Android Keystore / StrongBox
+                    App->App: Sign canonical VP payload or hash\nusing holder private key
+                    App->App: Generate holder proof / wallet proof\nsignature + holder public key reference
+
+                    alt Holder signing failed / key unavailable / user cancels
+
+                        App->Backend: Reject VP signing\ninteractionId\nreason = signing failed / key unavailable / user cancelled
+                        Backend->Backend: Mark verification cancelled
+                        Backend->Backend: Store audit log\nconsentDecision = ACCEPTED\nvpSigningStatus = FAILED\nreason\ntimestamp
+                        Backend-->Verifier: Verification cancelled\nHolder signing failed or cancelled
+
+                    else Holder signing successful
+
+                        note over App,Backend #lightgreen: 20. Mobile Wallet returns holder signature to Backend
+
+                        App->Backend: Submit holder signature\ninteractionId\nsignature\nholder public key reference\nproof metadata\nsigned challenge / signed VP hash
+
+                        note over Backend #orange: 21. Backend validates holder signature before assembling VP
+
+                        Backend->Backend: Validate interaction state again\nnot expired\nnot already used
+                        Backend->Backend: Validate verifier still trusted
+                        Backend->Backend: Validate holder public key reference\nmatches holder identifier / trusted device
+                        Backend->Backend: Verify holder signature\nagainst canonical VP payload or hash
+                        Backend->Backend: Validate signature algorithm\nmatches registered holder key
+                        Backend->Backend: Validate selected claims unchanged\nsame as consented claims
+                        Backend->Backend: Validate signed payload matches retrieved credential\nselectedCredentialId + selected claims + challenge / nonce
+
+                        alt Holder signature invalid / request expired / verifier no longer trusted
+
+                            Backend-->App: Reject submission\nInvalid holder signature / request expired / verifier not trusted
+                            Backend-->Verifier: Verification cancelled\nHolder proof invalid or request invalid
+                            Backend->Backend: Store audit log\nvpSigningStatus = INVALID\nreason\ntimestamp
+
+                        else Holder signature valid
+
+                            note over Backend #lightgreen: 22. Backend assembles signed Verifiable Presentation
+
+                            Backend->Backend: Assemble signed VP\ncanonical VP payload + holder signature
+                            Backend->Backend: Attach holder proof / wallet proof
+                            Backend->Backend: Attach selective disclosure proof\nif supported
+                            Backend->Backend: Attach challenge / nonce binding
+                            Backend->Backend: Attach domain / audience binding
+                            Backend->Backend: Final VP contains selected claims only
+                            Backend->Backend: Clear temporary VC payload from processing memory/cache\ndo not persist full VC payload
+                            Backend->Backend: Store consent audit log\nconsentDecision = ACCEPTED\nselected claims\nvpPreparedAt\nvpSignedAt\nholderKeyReference\nproofRequestId\ninteractionId\ncredentialId\nVP creation mode = BACKEND_ASSISTED_MOBILE_SIGNED\ncredentialStorageMode = REMOTE_CORE
+
+                            note over Backend,Core #orange: 23. Backend submits signed presentation to Procivis Core
+
+                            Backend->Core: Submit presentation\n(POST /api/interaction/v1/presentation-submit)\nSigned VP with selected claims + holder proof
+                            Core-->Backend: Presentation received
+
+                            note over Core #lightyellow: 24. Procivis Core verifies VP and credential
+
+                            Core->Core: Verify VP proof\nholder signature / wallet proof
+                            Core->Core: Verify challenge / nonce binding\nprevent replay attack
+                            Core->Core: Verify domain / audience\npresentation is for this verifier
+                            Core->Core: Validate claims against Proof Schema\nrequired claims are present
+                            Core->Core: Verify credential signature\nissuer proof / credential integrity
+                            Core->Core: Resolve issuer DID / identifier\nget issuer verification method / public key
+
+                            note over Core,Trust #orange: 25. Issuer Trust Validation
+
+                            Core->Trust: Check issuer trust status\nissuer DID / identifier\ntrust framework / trust list
+                            Trust-->Core: Issuer trust status\nTrusted / Untrusted / Unknown / Suspended
+
+                            alt Issuer not trusted
+
+                                Core-->Backend: Verification result\nFailed\nreason = Issuer not trusted
+                                Backend->Backend: Store verification audit log\nresult = FAILED\nreason = Issuer not trusted\ntimestamp\ncredentialStorageMode = REMOTE_CORE
+                                Backend-->App: Return verification result\nFailed
+                                Backend-->Verifier: Show result\nFailed - Issuer not trusted
+
+                            else Issuer trusted
+
+                                note over Core,Revoke #orange: 26. Credential Status Check / Revocation
+
+                                Core->Revoke: Check credential status\ncredentialId / statusList / revocation reference
+                                Revoke-->Core: Credential status\nValid / Revoked / Suspended / Unknown
+
+                                alt Credential revoked / suspended / status unknown
+
+                                    Core-->Backend: Verification result\nFailed\nreason = Credential revoked / suspended / status unknown
+                                    Backend->Backend: Store verification audit log\nresult = FAILED\nreason = Credential status invalid\ntimestamp\ncredentialStorageMode = REMOTE_CORE
+                                    Backend-->App: Return verification result\nFailed
+                                    Backend-->Verifier: Show result\nFailed - Credential status invalid
+
+                                else Credential status valid
+
+                                    note over Core #lightyellow: 27. Final cryptographic and policy verification
+
+                                    Core->Core: Check credential expiry\nnot expired
+                                    Core->Core: Check credential issuance date\nvalid issuance period
+                                    Core->Core: Check schema compatibility\ncredential schema matches proof schema
+                                    Core->Core: Check selective disclosure proof\nonly requested claims disclosed\nproof remains valid
+                                    Core->Core: Check trust framework policy\nissuer and verifier allowed for this credential type
+
+                                    alt Verification failed
+
+                                        Core-->Backend: Verification result\nFailed\nreason = signature / expiry / schema / policy validation failed
+                                        Backend->Backend: Store verification audit log\nresult = FAILED\nreason = cryptographic / schema / policy validation failed\ntimestamp\ncredentialStorageMode = REMOTE_CORE
+                                        Backend-->App: Return verification result\nFailed
+                                        Backend-->Verifier: Show result\nFailed
+
+                                    else Verification passed
+
+                                        Core-->Backend: Verification result\nVerified\nverified claims:\nlicenseNumber, firstName, lastName,\ndateOfBirth, expiryDate
+
+                                        note over Backend #lightgreen: 28. Backend stores audit log and returns result
+
+                                        Backend->Backend: Store audit log\nproofRequestId\nverifierId\nholder interactionId\nconsent decision = ACCEPTED\nVP creation mode = BACKEND_ASSISTED_MOBILE_SIGNED\ncredentialStorageMode = REMOTE_CORE\ncredentialId\nholder key reference\nverified result\ntimestamp\nminimal disclosed claims
+
+                                        Backend-->App: Return verification result\nVerified
+                                        Backend-->Verifier: Show result\nVerified\nverified claims summary
+
+                                    end
+
+                                end
+
+                            end
+
+                        end
+
+                    end
+
+                end
+
+            end
+
+        end
+
+    end
+
+end
+
+@enduml
