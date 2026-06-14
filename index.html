@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>VC Issuance Sequence Diagram</title>
+  <title>VC Sequence Diagrams</title>
 
   <style>
     body {
@@ -19,13 +19,26 @@
       font-size: 40px;
     }
 
-    .toolbar {
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
       margin-bottom: 16px;
-      font-size: 16px;
     }
 
-    .toolbar a {
-      margin-right: 16px;
+    .tab-button {
+      border: 1px solid #ccc;
+      background: white;
+      padding: 10px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 15px;
+    }
+
+    .tab-button.active {
+      background: #111;
+      color: white;
+      border-color: #111;
     }
 
     .diagram-container {
@@ -49,19 +62,53 @@
 </head>
 
 <body>
-  <h1>VC Issuance Sequence Diagram</h1>
+  <h1>VC Sequence Diagrams</h1>
 
-  <div class="toolbar">
-    <span>View-only rendered diagram.</span>
-    <a href="./docs/vc-issuance-sequence.puml" target="_blank">Source .puml</a>
-    <a href="./docs/vc-issuance-sequence.svg" target="_blank">Open SVG</a>
-  </div>
+  <div class="tabs" id="tabs"></div>
 
   <div class="diagram-container">
-    <iframe
-      src="./docs/vc-issuance-sequence.svg"
-      title="VC Issuance Sequence Diagram">
-    </iframe>
+    <iframe id="diagramFrame" title="Sequence Diagram"></iframe>
   </div>
+
+  <script>
+    const diagrams = [
+      {
+        title: "VC Issuance",
+        svg: "./docs/vc-issuance-sequence.svg"
+      }
+
+      // เพิ่ม diagram ใหม่ตรงนี้ เช่น:
+      // ,
+      // {
+      //   title: "VC Revocation",
+      //   svg: "./docs/vc-revocation-sequence.svg"
+      // },
+      // {
+      //   title: "VC Presentation",
+      //   svg: "./docs/vc-presentation-sequence.svg"
+      // }
+    ];
+
+    const tabs = document.getElementById("tabs");
+    const diagramFrame = document.getElementById("diagramFrame");
+
+    function showDiagram(index) {
+      diagramFrame.src = diagrams[index].svg;
+
+      document.querySelectorAll(".tab-button").forEach((button, buttonIndex) => {
+        button.classList.toggle("active", buttonIndex === index);
+      });
+    }
+
+    diagrams.forEach((diagram, index) => {
+      const button = document.createElement("button");
+      button.className = "tab-button";
+      button.textContent = diagram.title;
+      button.addEventListener("click", () => showDiagram(index));
+      tabs.appendChild(button);
+    });
+
+    showDiagram(0);
+  </script>
 </body>
 </html>
