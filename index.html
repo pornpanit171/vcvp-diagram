@@ -1,11 +1,16 @@
+```html
 <!DOCTYPE html>
 <html lang="th">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VC Sequence Diagrams</title>
 
   <style>
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       margin: 0;
       padding: 24px;
@@ -16,89 +21,91 @@
 
     h1 {
       margin-top: 0;
-      font-size: 40px;
+      margin-bottom: 20px;
+      font-size: 48px;
+      font-weight: bold;
     }
 
     .tabs {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 16px;
+      gap: 10px;
+      margin-bottom: 20px;
     }
 
     .tab-button {
+      padding: 10px 16px;
       border: 1px solid #ccc;
-      background: white;
-      padding: 10px 14px;
       border-radius: 8px;
+      background: #fff;
       cursor: pointer;
-      font-size: 15px;
+      font-size: 14px;
+      transition: all 0.2s ease;
+    }
+
+    .tab-button:hover {
+      background: #f0f0f0;
     }
 
     .tab-button.active {
       background: #111;
-      color: white;
+      color: #fff;
       border-color: #111;
     }
 
     .diagram-container {
       width: 100%;
-      height: calc(100vh - 170px);
+      height: calc(100vh - 180px);
       overflow: auto;
       background: white;
       border: 1px solid #ddd;
       border-radius: 8px;
-      padding: 0;
-      box-sizing: border-box;
+      padding: 20px;
     }
 
-    object {
+    #diagramImage {
       display: block;
-      width: 100%;
-      height: 100%;
-      border: none;
-      background: white;
+      width: auto;
+      height: auto;
+      max-width: none;
     }
   </style>
 </head>
 
 <body>
+
   <h1>VC Sequence Diagrams</h1>
 
   <div class="tabs" id="tabs"></div>
 
   <div class="diagram-container">
-    <object
-      id="diagramFrame"
-      type="image/svg+xml"
-      data="">
-    </object>
+    <img id="diagramImage" alt="Sequence Diagram">
   </div>
 
   <script>
+
     const diagrams = [
       {
         title: "VC Issuance",
         svg: "./docs/vc-issuance-sequence.svg"
+      },
+      {
+        title: "Multi Core Issuance",
+        svg: "./docs/vc-multi-core-issuance-sequence.svg"
+      },
+      {
+        title: "Multi Core Proof Issuance",
+        svg: "./docs/vc-multi-core-proof-issuance-sequence.svg"
       }
-
-      // เพิ่ม Diagram ใหม่ตรงนี้ เช่น:
-      // ,
-      // {
-      //   title: "VC Revocation",
-      //   svg: "./docs/vc-revocation-sequence.svg"
-      // },
-      // {
-      //   title: "VC Presentation",
-      //   svg: "./docs/vc-presentation-sequence.svg"
-      // }
     ];
 
     const tabs = document.getElementById("tabs");
-    const diagramFrame = document.getElementById("diagramFrame");
+    const diagramImage = document.getElementById("diagramImage");
 
     function showDiagram(index) {
-      diagramFrame.data = diagrams[index].svg;
+
+      diagramImage.src = diagrams[index].svg;
+      diagramImage.alt = diagrams[index].title;
 
       document.querySelectorAll(".tab-button").forEach((button, buttonIndex) => {
         button.classList.toggle("active", buttonIndex === index);
@@ -106,14 +113,23 @@
     }
 
     diagrams.forEach((diagram, index) => {
+
       const button = document.createElement("button");
+
       button.className = "tab-button";
       button.textContent = diagram.title;
-      button.addEventListener("click", () => showDiagram(index));
+
+      button.addEventListener("click", () => {
+        showDiagram(index);
+      });
+
       tabs.appendChild(button);
     });
 
     showDiagram(0);
+
   </script>
+
 </body>
 </html>
+```
