@@ -4,13 +4,13 @@ title Multi-Core VCVP — ขั้นที่ 1 : ออก Credential (Issuan
 actor "ประชาชน (Holder Wallet)" as Holder
 participant "Portal Center (Issuer UI)" as Portal
 
-box #d6e4ff **Orchestration Layer (ตัวกลาง)**
+box "Orchestration Layer (ตัวกลาง)" #d6e4ff
 participant "API Gateway" as GW
 participant "Smart Router" as Router
 participant "Adapter Layer" as Adapter
 end box
 
-box #e7f5e9 **Core Engine**
+box "Core Engine" #e7f5e9
 participant "Core A (Procivis · Primary)" as CoreA
 end box
 
