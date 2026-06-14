@@ -33,9 +33,9 @@ note over CoreB: ตรวจโดยไม่แตะ DB ของ Core A
 CoreB->IssuerWeb: GET /.well-known/did.json
 IssuerWeb-->CoreB: DID Document (Public Key)
 CoreB->CoreB: ตรวจลายเซ็นด้วย Public Key
-CoreB->Trust: Issuer อยู่ใน Trust List ไหม?
-Trust-->CoreB: ✓ เป็นหน่วยงานทางการ
-CoreB->IssuerWeb: GET Revocation Status List
+CoreB->Trust: ตรวจสอบ Issuer ใน Trust List
+Trust-->CoreB: ✓ ตรวจสอบผ่าน เป็นหน่วยงานทางการ
+CoreB->IssuerWeb: ตรวจสอบสถานะ VC
 IssuerWeb-->CoreB: ✓ ยังไม่ถูกเพิกถอน
 CoreB-->Adapter: ผลตรวจ = ผ่าน ✓
 deactivate CoreB
