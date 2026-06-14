@@ -1,5 +1,7 @@
 @startuml
-title Multi-Core VCVP — ขั้นที่ 2 : ตรวจสอบข้าม Core (Cross-Core Verification)
+hide footbox
+
+title Multi-Core VCVP ขั้นที่ 2 : ตรวจสอบข้าม Core (Cross-Core Verification)
 
 actor "ประชาชน (Holder Wallet)" as Holder
 participant "Portal Center (Verifier UI)" as Portal
