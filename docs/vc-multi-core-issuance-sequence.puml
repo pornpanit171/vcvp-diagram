@@ -1,0 +1,39 @@
+@startuml
+title Multi-Core VCVP — ขั้นที่ 1 : ออก Credential (Issuance)
+
+actor "ประชาชน (Holder Wallet)" as Holder
+participant "Portal Center (Issuer UI)" as Portal
+
+participantgroup #d6e4ff **Orchestration Layer (ตัวกลาง)**
+participant "API Gateway" as GW
+participant "Smart Router" as Router
+participant "Adapter Layer" as Adapter
+end
+
+participantgroup #e7f5e9 **Core Engine**
+participant "Core A (Procivis · Primary)" as CoreA
+end
+
+Holder->Portal: ขอรับบัตร (เช่น ใบขับขี่)
+Portal->GW: POST /issue  (Unified API)
+activate GW
+GW->GW: ยืนยันตัวตน + จำกัดสิทธิ์
+GW->Router: ส่งต่อคำขอ
+activate Router
+Router->Router: เลือก Core ตาม Policy
+Router->Adapter: ออกบัตรที่ Core A
+activate Adapter
+Adapter->CoreA: แปลงเป็น API ของ Procivis
+activate CoreA
+CoreA->CoreA: เซ็นด้วย Private Key (ใน DB/HSM)
+CoreA-->Adapter: Credential Offer (QR / link)
+deactivate CoreA
+Adapter-->Router: ผลลัพธ์
+deactivate Adapter
+Router-->GW: ผลลัพธ์
+deactivate Router
+GW-->Portal: ส่ง QR กลับ
+deactivate GW
+Portal-->Holder: แสดง QR ให้สแกน
+Holder->Holder: เก็บ Credential ใน Wallet (ผูกกับ Holder Public Key)
+@enduml
