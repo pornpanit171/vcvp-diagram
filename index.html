@@ -43,19 +43,20 @@
 
     .diagram-container {
       width: 100%;
-      height: 80vh;
+      height: calc(100vh - 170px);
       overflow: auto;
       background: white;
       border: 1px solid #ddd;
       border-radius: 8px;
-      padding: 16px;
+      padding: 0;
       box-sizing: border-box;
     }
 
-    iframe {
+    object {
+      display: block;
       width: 100%;
       height: 100%;
-      border: 0;
+      border: none;
       background: white;
     }
   </style>
@@ -67,7 +68,11 @@
   <div class="tabs" id="tabs"></div>
 
   <div class="diagram-container">
-    <iframe id="diagramFrame" title="Sequence Diagram"></iframe>
+    <object
+      id="diagramFrame"
+      type="image/svg+xml"
+      data="">
+    </object>
   </div>
 
   <script>
@@ -77,7 +82,7 @@
         svg: "./docs/vc-issuance-sequence.svg"
       }
 
-      // เพิ่ม diagram ใหม่ตรงนี้ เช่น:
+      // เพิ่ม Diagram ใหม่ตรงนี้ เช่น:
       // ,
       // {
       //   title: "VC Revocation",
@@ -93,7 +98,7 @@
     const diagramFrame = document.getElementById("diagramFrame");
 
     function showDiagram(index) {
-      diagramFrame.src = diagrams[index].svg;
+      diagramFrame.data = diagrams[index].svg;
 
       document.querySelectorAll(".tab-button").forEach((button, buttonIndex) => {
         button.classList.toggle("active", buttonIndex === index);
