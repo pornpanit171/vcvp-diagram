@@ -1,5 +1,8 @@
 @startuml
-title Multi-Core VCVP — ขั้นที่ 1 : ออก Credential (Issuance)
+
+hide footbox
+
+title Multi-Core VCVP ขั้นที่ 1 : ออก Credential (Issuance)
 
 actor "ประชาชน (Holder Wallet)" as Holder
 participant "Portal Center (Issuer UI)" as Portal
