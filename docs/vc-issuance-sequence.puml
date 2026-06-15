@@ -1,4 +1,6 @@
 @startuml
+title Digital Credential Issuance (SD-JWT VC, HSM-backed Issuer, Remote Credential Model)
+
 participant User
 participant "Mobile App / Wallet" as App #lightblue
 participant "Backend CoreAPI Middleware" as Backend #lightgreen
@@ -7,7 +9,7 @@ participant "HSM" as HSM #yellow
 participant "Government API Source of Truth" as OrgAPI #lightgray
 participant "Trust Registry ETDA" as Trust #violet
 
-note over Core,HSM #lightyellow:Issuer signing keys are HSM-backed\nPrivate key is generated inside HSM\nPrivate key never leaves HSM\nCore stores key metadata and HSM reference\nBackend receives ISSUER_KEY_ID and publicKey only
+note over Core,HSM #wheat:[SPEC] Issuer signing keys are HSM-backed\nPrivate key is generated inside HSM\nPrivate key never leaves HSM\nCore stores key metadata and HSM reference\nBackend receives ISSUER_KEY_ID and publicKey only
 
 note over User,App #lightblue: 1.1 User Login and Consent
 User->App: Login
@@ -17,15 +19,15 @@ User->App: Accept consent
 note over App,Backend #lightblue: 1.2 Request VC Issuance
 App->Backend: Request to add card / document\n(with consent acceptance evidence)
 
-Backend->Backend: Store consent evidence
+Backend->Backend: [DATA STORE] Store consent evidence
 
-note right of Backend #lightyellow:purpose = issuance card/document\nconsentVersion\nconsentExpiry\nconsentTimestamp\ntermsReference\nuserId\ncitizenId\nconsentStatus = ACCEPTED
+note right of Backend #lightyellow:[DATA STORE] purpose = issuance card/document\nconsentVersion\nconsentExpiry\nconsentTimestamp\ntermsReference\nuserId\ncitizenId\nconsentStatus = ACCEPTED
 
 note over Backend #lightgreen: 1.3 Validate Existing Identity Assurance
 
 Backend->Backend: Load existing identity assurance profile
 
-note right of Backend #lightyellow:identityAssuranceId\ncitizenId\nIAL level\nAAL level\nKYC source\nKYC timestamp\nassurance expiry\nlast authentication method\nlast authentication timestamp
+note right of Backend #lightyellow:[DATA STORE] identityAssuranceId\ncitizenId\nIAL level\nAAL level\nKYC source\nKYC timestamp\nassurance expiry\nlast authentication method\nlast authentication timestamp
 
 Backend->Backend: Validate assurance still valid\nand meets required freshness
 
@@ -39,13 +41,13 @@ else Assurance valid
     Backend->Backend: Continue to Trust Validation
 end
 
-note right of Backend #lightyellow :Use user session\nuserId\ncitizenId\naccess token
+note right of Backend #wheat:[SPEC] Use user session\nuserId\ncitizenId\naccess token
 
 note over Backend,Trust #violet: 2. Trust Framework Validation
 Backend->Trust: Validate issuer eligibility and schema policy
 Trust-->Backend: Trust status policy LoA requirement
 
-Backend->Backend: Store trust validation result , policy version, timestamp\ntrust registry reference, LoA requirement
+Backend->Backend: [DATA STORE] Store trust validation result , policy version, timestamp\ntrust registry reference, LoA requirement
 
 Backend->Backend: Validate issuer allowed & schema approved & LoA sufficient & consent valid
 
@@ -60,13 +62,13 @@ end
 note over Backend,OrgAPI #lightgray: 3. Fetch Official card / document
 Backend->OrgAPI: GET  card / document info from org
 
-note right of OrgAPI #lightyellow:Retrieve official card/document data\nfrom government source of truth
+note right of OrgAPI #wheat:[SPEC] Retrieve official card/document data\nfrom government source of truth
 
 OrgAPI-->Backend:  card / document info
 
-Backend->Backend: Store source data freshness and cache policy
+Backend->Backend: [DATA STORE] Store source data freshness and cache policy
 
-note right of Backend #lightyellow:sourceFetchedAt = current timestamp\nsourceLastUpdatedAt = from OrgAPI if available\nsourceSystem = Government API Source of Truth\ncachePolicy = no-cache / short-lived cache\ncacheTTL = e.g. 5 minutes\ncacheKey = citizenId + documentType\ncacheInvalidation = on revoke / suspend / expire
+note right of Backend #lightyellow:[DATA STORE] sourceFetchedAt = current timestamp\nsourceLastUpdatedAt = from OrgAPI if available\nsourceSystem = Government API Source of Truth\ncachePolicy = no-cache / short-lived cache\ncacheTTL = e.g. 5 minutes\ncacheKey = citizenId + documentType\ncacheInvalidation = on revoke / suspend / expire
 
 Backend->Backend: Validate official data & Check status active & Check not suspended &\nCheck not revoked etc.
 
@@ -78,14 +80,14 @@ else Official card/document valid
     Backend->Backend: Prepare verified claims
 end
 
-note over Backend #lightyellow: 4. Prepare Data
+note over Backend #lightgreen: 4. Prepare Data
 Backend->Backend: Validate and prepare data
 
 Backend->Backend: Create tamper-proof audit record
 
-note right of Backend #lightyellow:auditHash = hash(canonical audit payload)\nauditSignature = sign(auditHash)\npreviousAuditHash = link to previous log\nretentionPolicy = e.g. 10 years or regulatory requirement\nretentionUntil = issuedAt + retention period\nimmutableStorage = WORM / append-only log
+note right of Backend #gold:[AUDIT LOG] auditHash = hash(canonical audit payload)\nauditSignature = sign(auditHash)\npreviousAuditHash = link to previous log\nretentionPolicy = e.g. 10 years or regulatory requirement\nretentionUntil = issuedAt + retention period\nimmutableStorage = WORM / append-only log
 
-note right of Backend #lightyellow:Store issuance request\nStore mapped claims\nStore audit log\nStore identity assurance reference\nStore consent evidence
+note right of Backend #lightyellow:[DATA STORE] Store issuance request\nStore mapped claims\nStore audit log\nStore identity assurance reference\nStore consent evidence
 
 note over Backend,Core #orange: 5. Setup Issuer One Time or Reuse
 Backend->Core: Create or get organization\n(POST /api/organisation/v1)
@@ -93,14 +95,14 @@ Core-->Backend: Organization ID (ORG_ID) or error
 
 alt Create/Get organization failed
     Backend->Backend: Update status = ISSUER_SETUP_FAILED
-    Backend->Backend: Store issuer setup failure audit log
+    Backend->Backend: [ERROR AUDIT] Store issuer setup failure audit log
 
-    note right of Backend #pink:failureStep = CREATE_OR_GET_ORGANIZATION\nerrorCode\nerrorMessage\nretryable = true/false\nfailedAt\nissuanceSessionId\nuserId\ncitizenId
+    note right of Backend #pink:[ERROR AUDIT] failureStep = CREATE_OR_GET_ORGANIZATION\nerrorCode\nerrorMessage\nretryable = true/false\nfailedAt\nissuanceSessionId\nuserId\ncitizenId
 
     Backend-->App: Reject issuance request\nreason = ISSUER_SETUP_FAILED
     App-->User: Cannot proceed at this time
 else Organization ready
-    Backend->Backend: Store ORG_ID\nReuse for future issuance
+    Backend->Backend: [DATA STORE] Store ORG_ID\nReuse for future issuance
 
     Backend->Core: Create issuer signing key (POST /api/key/v1)\n(keyType, storageType = HSM-backed, organisationId)
     Core->HSM: Generate issuer signing key\n(non-exportable private key)
@@ -109,32 +111,32 @@ else Organization ready
             
     alt Create issuer signing key failed
         Backend->Backend: Update status = ISSUER_KEY_SETUP_FAILED
-        Backend->Backend: Store issuer key failure audit log
+        Backend->Backend: [ERROR AUDIT] Store issuer key failure audit log
 
-        note right of Backend #pink:failureStep = CREATE_ISSUER_SIGNING_KEY\nORG_ID\nerrorCode\nerrorMessage\nhsmErrorReference\nretryable = true/false\nfailedAt\nissuanceSessionId
+        note right of Backend #pink:[ERROR AUDIT] failureStep = CREATE_ISSUER_SIGNING_KEY\nORG_ID\nerrorCode\nerrorMessage\nhsmErrorReference\nretryable = true/false\nfailedAt\nissuanceSessionId
 
         Backend-->App: Reject issuance request\nreason = ISSUER_KEY_SETUP_FAILED
         App-->User: Cannot proceed at this time
     else Issuer key ready
 
-note right of Backend #lightyellow: Store ISSUER_KEY_ID\nStore publicKey\nStore key algorithm\nStore key status = ACTIVE\nDo not store HSM_KEY_REF if managed by Core\nDo not expose key to mobile app
+note right of Backend #lightyellow:[DATA STORE] Store ISSUER_KEY_ID\nStore publicKey\nStore key algorithm\nStore key status = ACTIVE\nDo not store HSM_KEY_REF if managed by Core\nDo not expose key to mobile app
         Backend->Core: Create issuer identity or DID (POST /api/identifier/v1)\n(reference ISSUER_KEY_ID)
-        note right of Core #lightyellow:DID can have multiple keys (verification methods)\nInitial key is used at creation\nAdditional keys can be added via identifier update API\nKeys can be rotated without changing DID
+        note right of Core #wheat:[SPEC] DID can have multiple keys (verification methods)\nInitial key is used at creation\nAdditional keys can be added via identifier update API\nKeys can be rotated without changing DID
 
         Core-->Backend: Issuer Identity ID (ISSUER_IDENTIFIER_ID) or error
 
         alt Create issuer identity / DID failed
             Backend->Backend: Update status = ISSUER_IDENTIFIER_SETUP_FAILED
-            Backend->Backend: Store issuer identifier failure audit log
+            Backend->Backend: [ERROR AUDIT] Store issuer identifier failure audit log
 
-            note right of Backend #pink:failureStep = CREATE_ISSUER_IDENTIFIER\nORG_ID\nISSUER_KEY_ID\nerrorCode\nerrorMessage\nretryable = true/false\nfailedAt\nissuanceSessionId
+            note right of Backend #pink:[ERROR AUDIT] failureStep = CREATE_ISSUER_IDENTIFIER\nORG_ID\nISSUER_KEY_ID\nerrorCode\nerrorMessage\nretryable = true/false\nfailedAt\nissuanceSessionId
 
             Backend->Backend: Mark ISSUER_KEY_ID as UNUSED_SETUP_FAILED\nor keep for retry according to key policy
 
             Backend-->App: Reject issuance request\nreason = ISSUER_IDENTIFIER_SETUP_FAILED
             App-->User: Cannot proceed at this time
         else Issuer identifier ready
-            Backend->Backend: Store ISSUER_IDENTIFIER_ID\nBind issuer DID with ISSUER_KEY_ID\nCore manages HSM key reference internally
+            Backend->Backend: [DATA STORE] Store ISSUER_IDENTIFIER_ID\nBind issuer DID with ISSUER_KEY_ID\nCore manages HSM key reference internally
 
             Backend->Backend: Update issuance status = READY_FOR_HOLDER_BINDING
 
@@ -148,7 +150,7 @@ note over App,Core #orange: 6. Prepare Holder Wallet and DID Binding
 App->Backend: Request holder key registration challenge\n(issuanceSessionId)
 Backend-->App: challengeId, nonce, expiresAt
 
-note right of Backend #lightyellow: Proof of Possession\nchallenge purpose = holder_key_binding\nchallenge expiresAt\nchallenge used = false\nchallenge bound to userId + deviceId + issuanceSessionId\nprevent replay attack
+note right of Backend #wheat:[SPEC] Proof of Possession\nchallenge purpose = holder_key_binding\nchallenge expiresAt\nchallenge used = false\nchallenge bound to userId + deviceId + issuanceSessionId\nprevent replay attack
 
 note over App #lightblue: Prepare holder key on device
 alt Holder key exists on device
@@ -171,7 +173,7 @@ else Holder key proof valid
     Backend->Core: Create holder identity or DID\n(POST /api/identifier/v1 with publicKey)
     Core-->Backend: Holder Identity ID (HOLDER_IDENTIFIER_ID)
     
-note right of Backend #lightyellow:Store HOLDER_IDENTIFIER_ID\nStore holder public key reference\nStore key type / algorithm\nStore deviceId\nLink with userId/deviceId\nDo not store holder private key
+note right of Backend #lightyellow:[DATA STORE] Store HOLDER_IDENTIFIER_ID\nStore holder public key reference\nStore key type / algorithm\nStore deviceId\nLink with userId/deviceId\nDo not store holder private key\nHolder public key will be embedded as cnf in issued SD-JWT (holder binding)
 
     Backend->Backend: Bind citizenId to holder identifier\nBind holder identifier to user account\nBind holder identifier to trusted device
     
@@ -189,16 +191,16 @@ Backend->Backend: Continue issuance\n(triggered by HOLDER_BINDING_SUCCESS)
 Backend->Core: Get or create card/document schema\n(GET/POST /api/credential-schema/v1)
 Core-->Backend: Credential Schema ID (CREDENTIAL_SCHEMA_ID)
 
-Backend->Backend: Store schema versioning and compatibility policy
+Backend->Backend: [DATA STORE] Store schema versioning and compatibility policy
 
-note right of Backend #lightyellow:schemaVersion = v1.0.0\nschemaStatus = ACTIVE\ncredentialType = DigitalDrivingLicense\nbackwardCompatibility = supported\ncompatibleVersions = v1.x\nbreakingChangePolicy = create new schema ID\nmigrationPolicy = support old credentials until expiry\ndeprecationPolicy = announce and sunset by date
+note right of Backend #wheat:[SPEC] schemaVersion = v1.0.0\nschemaStatus = ACTIVE\ncredentialType = DigitalDrivingLicense\nbackwardCompatibility = supported\ncompatibleVersions = v1.x\nbreakingChangePolicy = create new schema ID\nmigrationPolicy = support old credentials until expiry\ndeprecationPolicy = announce and sunset by date
 
-note right of Backend #lightyellow:Store CREDENTIAL_SCHEMA_ID\nStore schema version\nStore credential type
+note right of Backend #lightyellow:[DATA STORE] Store CREDENTIAL_SCHEMA_ID\nStore schema version\nStore credential type
 
 Backend->Core: Get schema details (GET /api/credential-schema/v1/{id})
 Core-->Backend: Claim IDs
 
-note right of Backend #lightyellow :Map fields to claim IDs\nlicense number\nlicense type\nissue date\nexpiry date\nholder name\ncitizenId\nissuing authority
+note right of Backend #wheat:[SPEC] Map fields to claim IDs\nlicense number\nlicense type\nissue date\nexpiry date\nholder name\ncitizenId\nissuing authority
 
 Backend->Backend: Set credential metadata & validFrom & validUntil &\nrevocation status method & credential lifecycle policy
 
@@ -213,27 +215,31 @@ alt Key expired / near expiry / inactive
     Core-->Backend: New ISSUER_KEY_ID, publicKey
 
     Backend->Core: Update issuer DID / identifier (PATCH /api/identifier/v1/{ISSUER_IDENTIFIER_ID})
-    note right of Core #lightyellow:Add new key as verification method\nMark old key as deprecated\nKeep old key for verification of existing credentials
+    note right of Core #wheat:[SPEC] Add new key as verification method\nMark old key as deprecated\nKeep old key for verification of existing credentials
 
     Core-->Backend: Updated issuer identifier
 
     Backend->Backend: Mark old ISSUER_KEY_ID as DEPRECATED
-    note right of Backend #lightyellow:Keep old ISSUER_KEY_ID available for verifying previously issued credentials\nOld key status = DEPRECATED, not revoked\nUse new ISSUER_KEY_ID for new credential issuance only\nRevoke old key only if compromised
+    note right of Backend #wheat:[SPEC] Keep old ISSUER_KEY_ID available for verifying previously issued credentials\nOld key status = DEPRECATED, not revoked\nUse new ISSUER_KEY_ID for new credential issuance only\nRevoke old key only if compromised
     
 else Key active
     Backend->Backend: Continue issuance
 end
 
 note over Backend,Core #orange: 8. Create Digital Credential and Offer
-Backend->Core: Create digital credential (POST /api/credential/v1)
+Backend->Core: Create digital credential (POST /api/credential/v1)\nformat = SD-JWT VC (dc+sd-jwt)\nproofType = JWS / ES256\ncnf = HOLDER public key (from Section 6 holder binding)\ndisclosable claims -> _sd digests
+Core->HSM: Sign SD-JWT (JWS) with issuer signing key
+HSM-->Core: Issuer signature
 Core-->Backend: Credential ID (CREDENTIAL_ID)
 
-note right of Backend #lightyellow:Store CREDENTIAL_ID\nStatus CREATED
+note right of Backend #lightyellow:[DATA STORE] Store CREDENTIAL_ID\nStatus CREATED
 
-Backend->Core: Generate secure pickup link (POST /api/credential/{id}/share)
+note right of Core #wheat:[SPEC] SD-JWT VC (issued, full) structure:\niss = issuer DID , vct = credential type\niat / exp = validFrom / validUntil\nstatus = BitstringStatusListEntry (revocation)\ncnf = holder public key (holder binding)\n_sd = digests of all disclosable claims\nDisclosures (salt + claim) stored with credential\nCore keeps FULL SD-JWT = source of truth (Remote model)
+
+Backend->Core: Generate secure pickup link (POST /api/credential/v1/{id}/share)
 Core-->Backend: Credential Offer URL
 
-note right of Backend #lightyellow: Store OFFER_URL (temporary)
+note right of Backend #lightyellow:[DATA STORE] Store OFFER_URL (temporary)
 
 Backend-->App: Send offer link
 
@@ -245,7 +251,7 @@ Core-->Backend: INTERACTION_ID and credential preview
 
 Backend-->App: Return preview
 
-note right of App #lightyellow:Store INTERACTION_ID temporary\nShow issuer\nShow claims\nShow expiry\nShow terms
+note right of App #lightyellow:[DATA STORE] Store INTERACTION_ID temporary\nShow issuer\nShow claims\nShow expiry\nShow terms
 
 note over User,App #lightblue: 10. User Reviews Credential
 App-->User: Show digital card/document preview
@@ -260,49 +266,49 @@ Core-->Backend: Credential issued
 
 Backend->Backend: Update status ACCEPTED & Update status ISSUED
 
-Backend->Backend: Store signed issuance audit log
+Backend->Backend: [AUDIT LOG] Store signed issuance audit log
 
-note right of Backend #lightyellow:eventType = CREDENTIAL_ISSUED\ncredentialId\nissuedAt\nissuer identifier\nholder identifier\ncredential status reference\nauditHash\nauditSignature\nretentionUntil
+note right of Backend #gold:[AUDIT LOG] eventType = CREDENTIAL_ISSUED\ncredentialId\nissuedAt\nissuer identifier\nholder identifier\ncredential status reference\nauditHash\nauditSignature\nretentionUntil
 
 note over Backend #lightgreen: 11A.1 Remote Credential Storage Model
 
 Backend->Backend: Confirm credential is stored in Procivis Core\nCore is source of truth for VC payload
 Backend->Backend: Do not persist full VC payload in Backend\nStore credential reference only
-Backend->Backend: Store credentialId = CREDENTIAL_ID\nStore holderIdentifierId = HOLDER_IDENTIFIER_ID\nStore issuerIdentifierId = ISSUER_IDENTIFIER_ID\nStore schemaId = CREDENTIAL_SCHEMA_ID\nStore credential type\nStore credential status reference\nStore validFrom / validUntil\nStore storageMode = REMOTE_CORE
+Backend->Backend: [DATA STORE] Store credentialId = CREDENTIAL_ID\nStore holderIdentifierId = HOLDER_IDENTIFIER_ID\nStore issuerIdentifierId = ISSUER_IDENTIFIER_ID\nStore schemaId = CREDENTIAL_SCHEMA_ID\nStore credential type\nStore credential status reference\nStore validFrom / validUntil\nStore storageMode = REMOTE_CORE
 
-note right of Backend #lightyellow:Remote credential model\nVC payload remains in Procivis Core\nBackend stores references and metadata only\nMobile stores references and display metadata only\nFull VC payload is fetched only during VP preparation after consent
+note right of Backend #wheat:[SPEC] Remote credential model\nVC payload remains in Procivis Core\nBackend stores references and metadata only\nMobile stores references and display metadata only\nFull VC payload is fetched only during VP preparation after consent
 
 note over Backend #lightgreen: 11A.2 Prepare Credential Reference Package for Mobile
 
 Backend->Backend: Prepare credential reference package\ncredentialId\ncredentialType\nissuer DID / issuer display name\nschemaId\nvalidFrom / validUntil\ncredential status reference\ndisplay metadata\nstorageMode = REMOTE_REFERENCE\npresentationMode = BACKEND_ASSISTED_MOBILE_SIGNED
 
-note over Backend,App #lightgreen: 11A.3 Send Credential Reference to Mobile Wallet
+note over Backend,App #lightblue: 11A.3 Send Credential Reference to Mobile Wallet
 
 Backend-->App: Credential reference package\ncredentialId\ncredentialType\nissuer DID / issuer display name\nschemaId\nvalidFrom / validUntil\ncredential status reference\ndisplay metadata\nstorageMode = REMOTE_REFERENCE\npresentationMode = BACKEND_ASSISTED_MOBILE_SIGNED
 
-note over App #lightgreen: 11A.4 Mobile Wallet Stores Credential Reference Only
+note over App #lightblue: 11A.4 Mobile Wallet Stores Credential Reference Only
 
-App->App: Store credentialId only\nDo not store full VC payload
-App->App: Store credential metadata\ncredentialType\nissuer DID / issuer display name\nschemaId\nvalidFrom / validUntil\nstatus reference\ndisplay metadata
+App->App: [DATA STORE] Store credentialId only\nDo not store full VC payload
+App->App: [DATA STORE] Store credential metadata\ncredentialType\nissuer DID / issuer display name\nschemaId\nvalidFrom / validUntil\nstatus reference\ndisplay metadata
 App->App: Bind credentialId to HOLDER_IDENTIFIER_ID\nBind credentialId to deviceId\nBind credentialId to holder key reference
 App->App: Mark credential as available for presentation\npresentationMode = BACKEND_ASSISTED_MOBILE_SIGNED\nstorageMode = REMOTE_REFERENCE
 
-note right of App #lightyellow:Mobile Wallet does not keep VC payload\nMobile keeps only credential reference + metadata\nHolder private key remains on device\nCredential payload will be retrieved by Backend from Core during VP flow after Holder consent
+note right of App #wheat:[SPEC] Mobile Wallet does not keep VC payload\nMobile keeps only credential reference + metadata\nHolder private key remains on device\nCredential payload will be retrieved by Backend from Core during VP flow after Holder consent
 
-note over App #lightgreen: 11A.5 Secure Local Reference Storage and Access Policy
+note over App #lightblue: 11A.5 Secure Local Reference Storage and Access Policy
 
-App->App: Store credential reference in secure local storage\nEncryptedSharedPreferences / Room encrypted DB / Keychain
+App->App: [DATA STORE] Store credential reference in secure local storage\nEncryptedSharedPreferences / Room encrypted DB / Keychain
 App->App: Protect reference access with device security\nbiometric / PIN / device unlock
 App->App: Prevent export of holder private key\nSecure Enclave / Android Keystore / StrongBox
 App->App: Configure usage policy\nrequire consent before presentation\nrequire holder signing before VP submission
 
-note over App,Backend #lightgreen: 11A.6 Mobile confirms credential reference storage
+note over App,Backend #lightblue: 11A.6 Mobile confirms credential reference storage
 
 App->Backend: Confirm credential reference stored\ncredentialId\nstorageStatus = STORED_REFERENCE\nholderIdentifierId\ndeviceId\ntimestamp
 
 note over Backend #lightgreen: 11A.7 Backend Records Remote Storage Audit Log
 
-Backend->Backend: Store remote credential reference audit log\ncredentialId\nholderIdentifierId\nissuerIdentifierId\nschemaId\ndeviceId\nstorageMode = REMOTE_CORE\nmobileStorageMode = REMOTE_REFERENCE\nissuedAt\nstoredReferenceAt\nauditHash\nauditSignature\npreviousAuditHash\nretentionUntil
+Backend->Backend: [AUDIT LOG] Store remote credential reference audit log\ncredentialId\nholderIdentifierId\nissuerIdentifierId\nschemaId\ndeviceId\nstorageMode = REMOTE_CORE\nmobileStorageMode = REMOTE_REFERENCE\nissuedAt\nstoredReferenceAt\nauditHash\nauditSignature\npreviousAuditHash\nretentionUntil
 
 Backend-->App: Credential reference storage acknowledged\nstatus = STORED_REFERENCE
 
@@ -317,7 +323,7 @@ else Holder rejects credential
 
 Backend->Backend: Create tamper-proof rejection audit log
 
-note right of Backend #pink:eventType = CREDENTIAL_REJECTED\ncredentialId\ninteractionId\nuserId\nholderIdentifierId\nissuerIdentifierId\nrejectionReason\nrejectedAt\nauditHash\nauditSignature\npreviousAuditHash\nretentionUntil\nimmutableStorage = WORM / append-only
+note right of Backend #pink:[ERROR AUDIT] eventType = CREDENTIAL_REJECTED\ncredentialId\ninteractionId\nuserId\nholderIdentifierId\nissuerIdentifierId\nrejectionReason\nrejectedAt\nauditHash\nauditSignature\npreviousAuditHash\nretentionUntil\nimmutableStorage = WORM / append-only
 
     Backend-->App: Cancel issuance
     App-->User: Credential not issued
