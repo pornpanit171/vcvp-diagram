@@ -1,0 +1,52 @@
+@startuml
+title Status List Lifecycle - Auto-Create / Publish / Update / Consume (Procivis Core, Bitstring Status List)
+
+participant "Issuer Admin" as Admin
+participant "Issuer Portal / Backend" as Backend #lightgreen
+participant "Credential Platform (Procivis Core)" as Core #orange
+participant "HSM" as HSM #yellow
+participant "Verifier (any Verifier / Core)" as Verifier
+
+note over Backend,Core #wheat:[SPEC] Status List model (POC = BITSTRINGSTATUSLIST)\nCore AUTO-MANAGES the status list (no manual create API)\nCore HOSTS it publicly at  /ssi/revocation/v1/list/{id}\nStatus List Credential is signed by issuer key (JWS / HSM)\nEach credential's credentialStatus -> { statusListUrl , statusListIndex }\nContains NO PII - only opaque status bits\nCore also supports TOKENSTATUSLIST and CRL (/ssi/revocation/v1/crl/{id})
+
+note over Admin,Backend #lightgreen: 1. Issuer creates credential schema with a revocation method
+Admin->Backend: Create credential schema\nrevocationMethod = BITSTRINGSTATUSLIST
+Backend->Core: Create credential schema\n(POST /api/credential-schema/v1)
+Core-->Backend: CREDENTIAL_SCHEMA_ID
+
+note over Backend,Core #orange: 2. Status List is auto-created on first issuance (lazy)
+note over Core #wheat:[SPEC] No explicit "create status list" call\nCore creates the list lazily on the first credential of this method
+Backend->Core: Issue first credential of this schema\n(see VC-8 Issuance, section 8)
+Core->Core: Allocate Status List bitstring\nall bits = 0 (valid) , gzip + base64
+Core->Core: Assign statusListIndex (bit position) to this credential
+Core->HSM: Sign Status List Credential (JWS)\nwith issuer signing key
+HSM-->Core: Issuer signature
+Core->Core: Host signed Status List at\n/ssi/revocation/v1/list/{id}
+Core-->Backend: credentialStatus\ntype = BitstringStatusListEntry\nstatusListUrl = /ssi/revocation/v1/list/{id}\nstatusListIndex
+
+note over Core #wheat:[SPEC] credentialStatus is embedded into the SD-JWT\nat issuance (see VC-8 section 8 "status = BitstringStatusListEntry")
+
+note over Backend #lightgreen: 3. Gate - verify the published Status List is reachable, then persist
+Backend->Core: GET /ssi/revocation/v1/list/{id} (self-check)
+alt #lightgreen Status List reachable (HTTP 200, valid JWS)
+    Backend->Backend: [DATA STORE] Store status list mapping\nstatusListUrl\nstatusListId\nrevocationMethod = BITSTRINGSTATUSLIST\ncredentialId -> statusListIndex
+    Backend->Backend: [AUDIT LOG] Store status list ready audit log\neventType = STATUS_LIST_PUBLISHED\nstatusListId\nstatusListUrl\nissuerIdentifierId\npublishedAt\nauditHash\nretentionUntil
+else #pink Not reachable (Core /ssi endpoint down / not deployed)
+    Backend->Backend: [ERROR AUDIT] Store status list failure audit log\nfailureStep = STATUS_LIST_REACHABILITY\nstatusListUrl\nerrorCode\nretryable = true\nfailedAt
+    Backend-->Admin: Warn - status list not reachable\ndo not rely on revocation until fixed
+end
+
+note over Backend,Core #orange: 4. (overview) Update on Revoke / Suspend / Reactivate
+note over Backend,Core #wheat:[SPEC] See Lifecycle-1 (Revoke / Suspend / Reactivate)\nCore flips the bit at statusListIndex\n-> re-signs Status List Credential (HSM)\n-> re-publishes at the SAME statusListUrl (automatic)\nNo new URL - verifiers always fetch the same list
+
+note over Verifier,Core #orange: 5. (overview) Consume during VP verification
+note over Verifier,Core #wheat:[SPEC] See VP-9 section 26 (Credential Status Check)
+Verifier->Core: GET /ssi/revocation/v1/list/{id}\n(fetch published Status List)
+Core-->Verifier: Status List Credential (signed JWS)
+Verifier->Verifier: Verify Status List JWS\n(issuer signature, integrity)
+Verifier->Verifier: Read bit at statusListIndex\n-> VALID / REVOKED / SUSPENDED
+Verifier->Verifier: Apply result to verification outcome\nrevoked or suspended -> verification FAILS
+
+note over Verifier,Core #wheat:[SPEC] Privacy & performance\nHerd privacy - one large list (e.g. 131072 bits) hides which credential\nNo PII in the list - only bit positions\nCacheable (TTL) - verifiers do not hit Core every time\nStatus is re-checked on each verification (freshness)
+
+@enduml
