@@ -1,0 +1,83 @@
+@startuml
+title PDPA - Consent Withdrawal and Data Subject Rights (DSAR)
+
+participant "Holder (Mobile Wallet)" as App #lightblue
+participant "Portal Center / Backend" as Backend #lightgreen
+participant "Credential Platform (Procivis Core)" as Core #orange
+participant "Verifier System (data controller)" as Verifier
+
+note over App,Backend #wheat:[SPEC] PDPA rights covered\nPart A - Withdraw VP consent (data already shared with a verifier)  [POC-accurate]\nPart B - Withdraw issuance consent (may trigger revoke)  [overview]\nPart C - Data Subject Rights: access / rectify / erase / restrict / portability / object (s.30-36)  [overview]
+
+note over App,Core #orange: A. Withdraw VP consent - data already shared with a verifier  [POC-accurate]
+note over App,Backend #lightblue: A1. Holder requests withdrawal of a past presentation (VP consent)
+App->App: Select a past presentation to withdraw\nproofId , verifier
+App->Core: GET /api/proof-request/v1/{proofId}\n(fetch proof schema name / details)
+Core-->App: Proof details (schema name)
+App->Backend: POST /api/portal/withdraw-consent\nproofId , verifierName , verifierOrgId , holderOrgId , reason
+
+note over Backend #lightgreen: A2. Portal records the withdrawal request
+Backend->Backend: [DATA STORE] Insert consent_withdrawals\nid , proofId , holderOrgId , verifierOrgId , verifierName , reason\nstatus = PENDING , requestedAt
+Backend->Backend: [AUDIT LOG] Store consent withdrawal requested\neventType = CONSENT_WITHDRAWAL_REQUESTED\nwithdrawalId , proofId , holderOrgId , requestedAt
+Backend-->App: withdrawalId , status = PENDING , requestedAt
+
+note over Backend,Verifier #lightgreen: A3. Portal notifies the Verifier (data controller) via webhook
+Backend->Verifier: Webhook - consent withdrawn\nwithdrawalId , proofId , holder , reason
+Backend->Backend: [DATA STORE] Update consent_withdrawals\nwebhook_sent_at , webhook_status = SENT
+
+note over Verifier,Backend #lightgreen: A4. Verifier acts on the withdrawal
+alt Verifier deletes the shared data
+    Verifier->Verifier: Delete stored VP / disclosed claims for proofId
+    Verifier->Backend: POST /api/portal/withdraw-consent/{withdrawalId}/callback\nstatus = DELETED
+    Backend->Backend: [DATA STORE] Update status = ACKNOWLEDGED -> DELETED\ndeletedAt
+    Backend->Backend: [AUDIT LOG] Store consent withdrawal completed\neventType = CONSENT_WITHDRAWAL_DELETED\nwithdrawalId , deletedAt
+    Backend->App: Notify status = DELETED
+else Verifier rejects (overriding lawful basis to retain)
+    Verifier->Backend: POST /api/portal/withdraw-consent/{withdrawalId}/callback\nstatus = REJECTED , rejectReason
+    Backend->Backend: [DATA STORE] Update status = REJECTED , reject_reason
+    Backend->Backend: [AUDIT LOG] eventType = CONSENT_WITHDRAWAL_REJECTED
+    Backend->App: Notify status = REJECTED (with reason)
+else No verifier response within 30 days (auto-approve)
+    Backend->Backend: Scheduler auto-marks status = DELETED , auto_approved = 1\n(PENDING / ACKNOWLEDGED for 30 days)
+    Backend->Backend: [AUDIT LOG] eventType = CONSENT_WITHDRAWAL_AUTO_APPROVED
+    Backend->App: Notify status = DELETED (auto-approved)
+end
+
+note over App,Core #orange: B. (overview) Withdraw ISSUANCE consent - may trigger credential revoke
+note over App,Core #wheat:[SPEC] Different from Part A:\nPart A withdraws data already SHARED with a verifier\nPart B withdraws the lawful basis for HOLDING the credential itself
+App->Backend: Withdraw issuance consent\ncredentialId , reason = CONSENT_WITHDRAWN
+Backend->Backend: Check lawful basis\nis consent the ONLY basis for this credential?
+alt Consent is the only lawful basis
+    Backend->Core: Revoke credential\n(POST /api/credential/v1/{id}/revoke) - see Lifecycle-1
+    Backend->Backend: [AUDIT LOG] eventType = CREDENTIAL_REVOKED_CONSENT_WITHDRAWN
+else Other lawful basis (e.g. legal duty)
+    Backend->Backend: Keep credential\nstop only the consent-based processing
+    Backend->Backend: [AUDIT LOG] eventType = CONSENT_WITHDRAWN_PROCESSING_STOPPED
+end
+
+note over App,Core #orange: C. (overview) Data Subject Rights (DSAR) - PDPA s.30-36
+App->Backend: DSAR request\ntype = ACCESS / RECTIFY / ERASE / RESTRICT / PORTABILITY / OBJECT
+Backend->Backend: Verify holder identity\n[DATA STORE] Log DSAR ticket (type , requestedAt , SLA)
+alt type = ACCESS
+    Backend->App: Provide copy of personal data + processing / audit records
+else type = RECTIFY
+    Backend->Core: Re-issue credential with corrected data\n(see #5 Renewal)
+else type = ERASE
+    Backend->Core: Revoke credential + delete references\n(see Lifecycle-1 + #6 Deletion)
+    note over Backend #wheat:[SPEC] Erasure is balanced against legal retention\nminimal audit log is kept per regulatory requirement
+else type = RESTRICT (PDPA s.34)
+    Backend->Backend: Flag data as RESTRICTED - keep but stop active processing
+    opt Restrict credential use as well
+        Backend->Core: Suspend credential (see Lifecycle-1) - temporarily not usable
+    end
+    note over Backend #wheat:[SPEC] Restriction is temporary (s.34)\ne.g. pause processing while a rectify / object dispute is resolved
+else type = PORTABILITY
+    Backend->App: Export personal data in machine-readable format
+else type = OBJECT
+    Backend->Backend: Stop processing for the objected purpose
+end
+Backend->Backend: [AUDIT LOG] Store DSAR fulfilment\ntype , fulfilledAt , withinSLA
+Backend-->App: DSAR result + timestamp
+
+note over App,Backend #wheat:[SPEC] PDPA notes\nLawful basis other than consent may limit erasure / withdrawal\nWithdrawing consent does not affect lawfulness of processing done before withdrawal\nResponses must meet the PDPA SLA (POC uses 30-day auto-approve for VP consent)
+
+@enduml

@@ -1,75 +1,113 @@
 @startuml
-title Credential Lifecycle - Revoke / Suspend / Reactivate (Issuer-initiated, Bitstring Status List)
+title Credential Revocation Lifecycle - Admin-initiated and Holder-requested (two cases, shared mechanism)
 
-participant "Issuer Admin" as Admin
+participant "Issuer Admin / Reviewer" as Admin
+participant "Holder (Mobile Wallet)" as App #lightblue
 participant "Issuer Portal / Backend" as Backend #lightgreen
 participant "Credential Platform (Procivis Core)" as Core #orange
 participant "HSM" as HSM #yellow
-participant "Holder (Mobile Wallet)" as App #lightblue
 
-note over Backend,Core #wheat:[SPEC] Status model (POC = BITSTRINGSTATUSLIST)\nVALID -> SUSPENDED (temporary, optional suspendEndDate)\nVALID / SUSPENDED -> REVOKED (permanent, terminal)\nSUSPENDED -> VALID (reactivate)\nREVOKED is terminal - cannot reactivate\nStatus List is hosted by Core at /ssi/revocation/v1/list/{id}\nEach credential -> statusListIndex (bit) in that list
+note over Backend,Core #wheat:[SPEC] Status model (POC = BITSTRINGSTATUSLIST)\nVALID -> SUSPENDED (temporary, optional suspendEndDate)\nVALID / SUSPENDED -> REVOKED (permanent, terminal)\nSUSPENDED -> VALID (reactivate)\nStatus List hosted by Core at /ssi/revocation/v1/list/{id}
+note over Admin,App #wheat:[SPEC] TWO initiation paths in this file\nCASE A - Issuer Admin initiates the action directly\nCASE B - Holder REQUESTS revocation -> Issuer approves -> revoke\nBoth converge on the SHARED mechanism (Core changes status + re-publishes Status List)\nPrinciple: Holder may REQUEST ; only the Issuer can REVOKE (W3C VC 2.0)
 
-note over Admin,Backend #lightgreen: 1. Issuer Admin initiates lifecycle action
-Admin->Backend: Request lifecycle action\ncredentialId\naction = REVOKE / SUSPEND / REACTIVATE\nreason (e.g. lost / data error / consent withdrawn)\nsuspendEndDate (optional, for SUSPEND)
+alt CASE A : Issuer Admin initiates directly
+==  CASE A : ADMIN / ISSUER INITIATES DIRECTLY  ==
 
-note over Backend #lightgreen: 2. Backend authorizes and validates state transition
-Backend->Backend: Validate admin identity\nauthenticated user / access token / session
-Backend->Backend: Check authorization\npermission to manage this credential type / organisation
-Backend->Backend: Load credential reference\ncredentialId\nissuerIdentifierId\nholderIdentifierId\nstatusListIndex\ncurrent status
-Backend->Backend: Validate state transition allowed\nREVOKE: from VALID or SUSPENDED\nSUSPEND: from VALID\nREACTIVATE: from SUSPENDED only
+    note over Admin,Backend #lightgreen: A1. Admin initiates lifecycle action
+    Admin->Backend: action = REVOKE / SUSPEND / REACTIVATE\ncredentialId , reason
+    Backend->Backend: Validate admin identity + authorization\npermission to manage this credential type / organisation
+    Backend->Backend: Load credential reference\ncredentialId , statusListIndex , current status
+    Backend->Backend: Validate state transition allowed\nREVOKE: from VALID/SUSPENDED , SUSPEND: from VALID , REACTIVATE: from SUSPENDED
 
-alt Invalid transition or unauthorized
-    Backend->Backend: [ERROR AUDIT] Store lifecycle failure audit log\nfailureStep = VALIDATE_TRANSITION\ncredentialId\ncurrentStatus\nrequestedAction\nreason = invalid transition / unauthorized\nactorId\nfailedAt
-    Backend-->Admin: Reject request\nInvalid state transition or insufficient permission
-else Transition allowed
-
-    note over Backend,Core #orange: 3. Backend calls Procivis Core to change status
-
-    alt action = REVOKE
-        Backend->Core: Revoke credential\n(POST /api/credential/v1/{id}/revoke)\nreason
-        Core->Core: Set status bit = REVOKED at statusListIndex\nin its hosted Status List (/ssi/revocation/v1/list/{id})
-    else action = SUSPEND
-        Backend->Core: Suspend credential\n(POST /api/credential/v1/{id}/suspend)\nsuspendEndDate (optional)
-        Core->Core: Set status bit = SUSPENDED at statusListIndex\nin its hosted Status List
-    else action = REACTIVATE
-        Backend->Core: Reactivate credential\n(POST /api/credential/v1/{id}/reactivate)
-        Core->Core: Clear status bit = VALID at statusListIndex\nin its hosted Status List
+    alt Invalid transition / unauthorized
+        Backend->Backend: [ERROR AUDIT] Store failure\nfailureStep = VALIDATE_TRANSITION , reason , actorId , failedAt
+        Backend-->Admin: Reject - invalid transition / insufficient permission
+        note over Admin,Backend #pink: Outcome = NO ACTION (ends here)
+    else Transition allowed
+        note over Admin,Backend #lightgreen: decidedAction set -> proceed to SHARED below
     end
 
-    note over Core #orange: 4. Core publishes the updated Status List (serialize -> sign -> host -> verify)
+else CASE B : Holder requests revocation (request -> issuer approval)
+==  CASE B : HOLDER REQUESTS  ->  ISSUER APPROVES  ==
 
-    Core->Core: Serialize updated Status List\nbitstring -> gzip + base64 (reflecting the new bit)
-    Core->HSM: Sign updated Status List Credential (JWS)\nwith issuer signing key
-    HSM-->Core: Issuer signature
-    Core->Core: Re-publish updated Status List Credential\nat the SAME /ssi/revocation/v1/list/{id} (Core-hosted)
-    Core->Core: Self-check published list is reachable\nGET /ssi/revocation/v1/list/{id} (expect HTTP 200, valid JWS)
-    note over Core #wheat:[SPEC] Status List publication (same mechanism as Lifecycle-2):\nRe-signed on EVERY status change\nServed by Core at the SAME public URL /ssi/revocation/v1/list/{id}\nNo new URL - verifiers always fetch the same list\nNo PII - only opaque bit positions\nVerifiers fetch on-demand during VP verification (cacheable)
+    note over App,Backend #lightblue: B1. Holder submits a request (typed reason)
+    App->Backend: Request revocation\ncredentialId , reasonType (LOST / STOLEN / COMPROMISED / NO_LONGER_NEEDED / DATA_ERROR) , reasonNote
+    Backend->Backend: Validate holder owns credential\nnot already REVOKED , no PENDING request
 
-    Core-->Backend: New status\nREVOKED / SUSPENDED / VALID\nstatusListIndex\neffectiveAt
+    alt Already revoked / duplicate pending
+        Backend->Backend: [ERROR AUDIT] Store failure\nfailureStep = VALIDATE_REQUEST , reason = already revoked / duplicate pending
+        Backend-->App: Reject - already revoked or request pending
+        note over App,Backend #pink: Outcome = NO ACTION (ends here)
+    else Request accepted
+        Backend->Backend: [DATA STORE] Create revocation request\nstatus = REQUESTED , reasonType , reasonNote , requestedAt , holderId
+        Backend->Backend: [AUDIT LOG] Store revocation requested\neventType = REVOCATION_REQUESTED , holderId , reasonType
 
-    alt Core or Status List update failed
-        Backend->Backend: [ERROR AUDIT] Store lifecycle failure audit log\nfailureStep = CORE_STATUS_UPDATE / STATUS_LIST_PUBLISH\ncredentialId\nrequestedAction\nerrorCode\nerrorMessage\nretryable = true/false\nfailedAt
-        Backend-->Admin: Action failed - please retry\nstatus unchanged
-    else Status updated successfully
+        note over Backend,Core #lightgreen: B2. Risk-based triage (NIST 800-63B)
+        alt High risk - LOST / STOLEN / COMPROMISED
+            note over Backend,Core #wheat:[SPEC] Fast-path: contain immediately, confirm later (reversible if false report)
+            Backend->Core: Suspend immediately\n(POST /api/credential/v1/{id}/suspend)\nCore re-signs + re-publishes Status List (see SHARED)
+            Backend->Backend: [AUDIT LOG] eventType = REVOCATION_FASTPATH_SUSPEND
+            Backend-->App: Acknowledged - credential SUSPENDED immediately , under review
+        else Low risk - NO_LONGER_NEEDED / DATA_ERROR
+            Backend-->App: Acknowledged - request PENDING issuer review
+        end
 
-        note over Backend #lightgreen: 5. Backend persists status and writes audit log
+        note over Admin,Backend #lightgreen: B3. Issuer reviews within SLA (PDPA timeframe)
+        Backend->Admin: Notify - pending revocation request
+        note over Backend #wheat:[SPEC] SLA (PDPA): decide within the response window ; else escalation / default policy
+        Admin->Backend: Review request (may re-verify holder identity / loss report)
 
-        Backend->Backend: [DATA STORE] Update credential status reference\ncredentialId\nstatus = REVOKED / SUSPENDED / VALID\nreason\neffectiveAt\nsuspendEndDate (if SUSPEND)\nactorId
-        Backend->Backend: [AUDIT LOG] Store lifecycle audit log\neventType = CREDENTIAL_REVOKED / SUSPENDED / REACTIVATED\ncredentialId\nissuerIdentifierId\nholderIdentifierId\nreason\nactorId\neffectiveAt\nauditHash\nauditSignature\npreviousAuditHash\nretentionUntil\nimmutableStorage = WORM / append-only
-
-        note over Backend,App #lightblue: 6. Backend notifies Holder
-        Backend->App: Push notification\ncredentialId\nnewStatus = REVOKED / SUSPENDED / VALID\nreason
-        App->App: [DATA STORE] Update local credential metadata\nstatus = newStatus\nDo not change holder key / reference
-        App->App: Display updated credential status\n(revoked / suspended / active)
-
-        Backend-->Admin: Lifecycle action completed\nstatus = newStatus\neffectiveAt
+        alt Issuer REJECTS
+            Backend->Backend: [DATA STORE] Update request = REJECTED\nrejectReason (mandatory) , actionBy , actionAt
+            opt Was fast-path suspended
+                Backend->Core: Reactivate\n(POST /api/credential/v1/{id}/reactivate) - back to VALID
+                Backend->Backend: [AUDIT LOG] eventType = REVOCATION_FASTPATH_REACTIVATE
+            end
+            Backend->Backend: [AUDIT LOG] Store revocation rejected\neventType = REVOCATION_REJECTED , rejectReason , actionBy
+            Backend->App: Notify - request REJECTED + reason (may re-request later)
+            note over App,Backend #pink: Outcome = NO REVOKE (request closed)
+        else Issuer APPROVES
+            note over Admin,Backend #lightgreen: decidedAction = REVOKE -> proceed to SHARED below
+        end
     end
 end
 
-note over Core #wheat:[SPEC] Effect on verification (see VP-9 section 26):\nNext VP verification fetches Status List\n-> credential shows REVOKED / SUSPENDED -> verification FAILS\n-> VALID (after reactivate) -> verification can pass again
+==  SHARED : CORE APPLIES STATUS CHANGE + PUBLISH STATUS LIST  ==
+alt An action was decided (Case A: transition allowed  OR  Case B: issuer approved)
 
-note over Backend,Core #wheat:[SPEC] Scheduled auto-reactivation (optional):\nIf SUSPEND had suspendEndDate, a scheduler reactivates at that time\n-> re-runs the REACTIVATE flow automatically
+    note over Backend,Core #orange: SHARED. Core applies the status change + publishes Status List
+    note over Backend,Core #wheat:[SPEC] Reached ONLY when an action was decided\nReject / invalid paths above end without reaching here
 
-note over Admin,Backend #wheat:[SPEC] PDPA link : reason = CONSENT_WITHDRAWN\ntriggers this REVOKE flow when consent is the only lawful basis
+    Backend->Core: Apply action\n(POST /api/credential/v1/{id}/{revoke | suspend | reactivate})
+    Core->Core: Set / Clear status bit at statusListIndex
+    Core->Core: Serialize Status List\nbitstring -> gzip + base64 (reflecting the new bit)
+    Core->HSM: Sign updated Status List Credential (JWS)\nwith issuer signing key
+    HSM-->Core: Issuer signature
+    Core->Core: Re-publish at the SAME /ssi/revocation/v1/list/{id} (Core-hosted)
+    Core->Core: Self-check published list is reachable\nGET /ssi/revocation/v1/list/{id} (expect HTTP 200, valid JWS)
+    Core-->Backend: New status (REVOKED / SUSPENDED / VALID) , statusListIndex , effectiveAt
+
+    alt Core or Status List publish failed
+        Backend->Backend: [ERROR AUDIT] Store failure\nfailureStep = CORE_STATUS_UPDATE / STATUS_LIST_PUBLISH , errorCode , retryable
+        Backend-->Admin: Action failed - please retry (status unchanged)
+    else Status updated successfully
+        note over Backend #lightgreen: Persist status + write audit log
+        Backend->Backend: [DATA STORE] Update credential status reference\ncredentialId , status , reason , effectiveAt , suspendEndDate (if SUSPEND) , actionBy
+        Backend->Backend: [AUDIT LOG] Store lifecycle audit log\neventType = CREDENTIAL_REVOKED / SUSPENDED / REACTIVATED\ncredentialId , reason , actionBy , effectiveAt , auditHash , auditSignature , previousAuditHash , retentionUntil , immutableStorage = WORM
+
+        note over App,Backend #lightblue: Notify Holder
+        Backend->App: Push notification\ncredentialId , newStatus , reason
+        App->App: [DATA STORE] Update local credential metadata\nstatus = newStatus (do not change holder key / reference)
+        App->App: Display updated credential status\n(revoked / suspended / active)
+        Backend-->Admin: Lifecycle action completed (status , effectiveAt)
+    end
+
+else No action - request was invalid or rejected (flow already ended above)
+    note over Backend #pink: No status change ; nothing further
+end
+
+note over Backend,Core #wheat:[SPEC] Effect on verification (see VP-9 section 26):\nNext VP verification fetches Status List -> REVOKED / SUSPENDED -> verification FAILS\n-> VALID (after reactivate) -> verification can pass again
+note over Backend,Core #wheat:[SPEC] Scheduled auto-reactivation (optional):\nIf SUSPEND had suspendEndDate, a scheduler reactivates at that time (re-runs REACTIVATE)
+note over Admin,App #wheat:[SPEC] Standards mapping\nHolder right to request -> NIST 800-63B (invalidation) , PDPA s.19/33 , eIDAS user control\nIssuer authority to decide -> W3C VC 2.0 (issuer controls status) , ETDA Trust Framework\nFast-path on loss/theft -> NIST 800-63B (immediate invalidation)\nSLA + mandatory reject reason -> PDPA / GDPR\nStatus list mechanism -> W3C Bitstring Status List (see Lifecycle-2)\nAudit at every step -> PDPA s.39 accountability , ISO 27001
 
 @enduml
