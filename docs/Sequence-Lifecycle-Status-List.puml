@@ -9,7 +9,7 @@ participant "Verifier (any Verifier / Core)" as Verifier
 
 note over Backend,Core #wheat:[SPEC] Status List model (POC = BITSTRINGSTATUSLIST)\nCore AUTO-MANAGES the status list (no manual create API)\nCore HOSTS it publicly at  /ssi/revocation/v1/list/{id}\nStatus List Credential is signed by issuer key (JWS / HSM)\nEach credential's credentialStatus -> { statusListUrl , statusListIndex }\nContains NO PII - only opaque status bits\nCore also supports TOKENSTATUSLIST and CRL (/ssi/revocation/v1/crl/{id})
 
-note over Admin,Backend #lightgreen: 1. Issuer creates credential schema with a revocation method
+note over Admin,Backend #orange: 1. Issuer creates credential schema with a revocation method
 Admin->Backend: Create credential schema\nrevocationMethod = BITSTRINGSTATUSLIST
 Backend->Core: Create credential schema\n(POST /api/credential-schema/v1)
 Core-->Backend: CREDENTIAL_SCHEMA_ID
@@ -26,7 +26,7 @@ Core-->Backend: credentialStatus\ntype = BitstringStatusListEntry\nstatusListUrl
 
 note over Core #wheat:[SPEC] credentialStatus is embedded into the SD-JWT\nat issuance (see VC-8 section 8 "status = BitstringStatusListEntry")
 
-note over Backend #lightgreen: 3. Gate - verify the published Status List is reachable, then persist
+note over Backend #orange: 3. Gate - verify the published Status List is reachable, then persist
 Backend->Core: GET /ssi/revocation/v1/list/{id} (self-check)
 alt #lightgreen Status List reachable (HTTP 200, valid JWS)
     Backend->Backend: [DATA STORE] Store status list mapping\nstatusListUrl\nstatusListId\nrevocationMethod = BITSTRINGSTATUSLIST\ncredentialId -> statusListIndex
