@@ -87,7 +87,7 @@
     const diagrams = [
       {
         title: "VC Issuance",
-        svg: "./docs/vc-issuance-sequence#12.svg"
+        svg: "./docs/vc-issuance-sequence12.svg"
       },
 	  {
         title: "VP Issuance",
@@ -112,7 +112,8 @@
 
     function showDiagram(index) {
 
-      diagramImage.src = diagrams[index].svg;
+      // "#" in a file name must be encoded, otherwise the browser treats it as a URL fragment
+      diagramImage.src = diagrams[index].svg.replace(/#/g, "%23");
       diagramImage.alt = diagrams[index].title;
 
       document.querySelectorAll(".tab-button").forEach((button, buttonIndex) => {
@@ -140,4 +141,3 @@
 
 </body>
 </html>
-```
