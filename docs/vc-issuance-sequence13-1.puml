@@ -358,5 +358,6 @@ Adapter<--Core: 200 | DocumentId + OfferUrl + ExpiresAt
 DW<--Adapter: 200 | DocumentId + OfferUrl + ExpiresAt
 DW->DW: [DATA STORE] Store DocumentId + OfferUrl + ExpiresAt in DW database (issuance request)
 Mini<--DW: 200 (response of 1.2) | issuanceSessionId , OfferUrl , ExpiresAt\nissuerTrust (Result , CheckedAt , RegistryReference)
+end
 
 @enduml
