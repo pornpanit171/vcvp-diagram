@@ -23,6 +23,7 @@ Mini->Adapter: Read offer from credential_offer_uri | GET /ssi/openid4vci/final-
 Adapter->Core: Read offer from credential_offer_uri  | GET /ssi/openid4vci/final-1.0/{credentialSchemaId}/offer/{credentialId}
 Core->Engine: Read offer from credential_offer_uri | GET /ssi/openid4vci/final-1.0/{credentialSchemaId}/offer/{credentialId} (VCVP Core 11)
 Engine-->Core: credential_issuer , credential_configuration_ids , grants.pre-authorized_code
+Core->Core: [DATA STORE] Store pre-authorized_code (= engine interaction id) in Documents table EngineRefs[].RefInteractionId\n(document found by {credentialId} in the offer path = EngineRefs[].RefDocumentId)
 Core->Core: [AUDIT LOG] Write audit record of /ssi offer (EngineCalls , Correlation.DocumentId)
 Adapter<--Core: credential offer | credential_issuer , credential_configuration_ids , grants.pre-authorized_code
 Mini<--Adapter: credential offer | credential_issuer , credential_configuration_ids , grants.pre-authorized_code
@@ -181,7 +182,7 @@ CoreApp-->Mini: proof JWT (one per holder key)
 
         Engine->Engine: State OFFERED → ACCEPTED
         Engine-->Core: SD_JWT_VC (signed) + all disclosures + notification_id
-        Core->Core: Documents = ACTIVE
+        Core->Core: [DATA STORE] Update Documents : Status = ACTIVE and EngineRefs[].RefNotificationId = notification_id\n(document found by the access token , the part before the dot = engine interaction id = EngineRefs[].RefInteractionId)
 
         note over Core #lightgreen: 8.4 Issuance Audit Log
         note right of Core #wheat:[AUDIT LOG] VCVPAuditLog\nEventType : value for /ssi credential not decided yet\nEngineCalls[].RefEntityId (engine credential id)\nCorrelation.DocumentId\nEventTime\nIntegrity.Hash , Integrity.PrevHash\nno personal data claims in the audit trail
@@ -229,7 +230,7 @@ CoreApp-->Mini: proof JWT (one per holder key)
             Core->Engine: Notify credential_failure with notification_id + access token | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/notification (VCVP Core 19)\nevent = credential_failure
             Engine->Engine: State ACCEPTED → ERROR
             Engine-->Core: 204
-            Core->Core: Update status = ISSUANCE_FAILED
+            Core->Core: [DATA STORE] Documents Status = ISSUANCE_FAILED , WalletNotification (Event = credential_failure , ReceivedAt , FailureReason from event_description)\n(document found by notification_id = EngineRefs[].RefNotificationId)
             Core->Core: [ERROR AUDIT] Write audit record of /ssi notification (FailureReason = reason from event_description , event = credential_failure , Correlation.DocumentId)
             Adapter<--Core: 204
             DW<--Adapter: 204
@@ -285,7 +286,7 @@ CoreApp-->Mini: Credential stored | credentialId
             note right of Engine #wheat:[SPEC] The engine sets ACCEPTED when the credential is issued , not on notification\ncredential_accepted does not change state\ncredential_failure → ERROR | credential_deleted → REJECTED
             Core->Engine: Notify credential_accepted with notification_id + access token | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/notification (VCVP Core 19)\nevent = credential_accepted
             Engine-->Core: 204 (state stays ACCEPTED)
-            Core->Core: [DATA STORE] Store wallet receipt confirmation in Documents table
+            Core->Core: [DATA STORE] Store wallet receipt in Documents table : WalletNotification (Event = credential_accepted , ReceivedAt)\n(document found by notification_id = EngineRefs[].RefNotificationId)
             Core->Core: [AUDIT LOG] Write audit record of /ssi notification (event = credential_accepted , Correlation.DocumentId)
             Adapter<--Core: 204
             DW<--Adapter: 204

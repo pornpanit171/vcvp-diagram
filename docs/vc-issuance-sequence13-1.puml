@@ -231,9 +231,7 @@ Core<--Engine: 200 | schema details + Claims[] (ClaimId | Path | Name | Type | R
 Core->Core: [AUDIT LOG] Write audit record of VCVP Core 07 (TrustCheck , EngineCalls)
 Adapter<--Core: 200 | schema details + Claims[] (ClaimId | Path | NameEn | NameLocal | Type | Required)\n+ IssuerTrust (Result , CheckedAt , RegistryReference) from TrustCheck
 DW<--Adapter: 200 | schema details + Claims[] + IssuerTrust
-DW->DW: Keep IssuerTrust to send back to the app at the end of section 6
-(DW reply to the add card/document request of section 1.2)
-the app shows it in the preview in section 7.2
+DW->DW: Keep IssuerTrust to send back to the app at the end of section 6\n(DW reply to the add card/document request of section 1.2)\nthe app shows it in the preview in section 7.2
 
 note over DW #lightgreen: 4. Prepare Data
 note right of DW #wheat:[SPEC] Map fields to claim IDs
