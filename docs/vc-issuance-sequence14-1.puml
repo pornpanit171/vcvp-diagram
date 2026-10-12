@@ -6,7 +6,6 @@ participant "Document Wallet (Miniapp)" as Mini #lightblue
 participant "Mobile App (Core ทางรัฐ)" as CoreApp #lightblue
 participant "DW Core" as DW #lightcyan
 participant "Government API Source of Truth" as Agency #lightgray
-participant "VCVP Adapter" as Adapter #palegreen
 participant "VCVP Core" as Core #lightgreen
 participant "one-core (Credential Engine)" as Engine #orange
 participant "HSM" as HSM #yellow
@@ -158,15 +157,14 @@ else VC possible
 end
 
 note over DW,Trust #violet: 3. Get Schema Details (VCVP Core checks the Trust Framework before issuance)
-note right of Adapter #wheat:[SPEC] Get schema details , request issuance and request offer link are used by two callers :\nDW Core (this flow) and agency systems that call the VCVP Adapter directly (system to system issuance)\nSteps marked "caller channel = WALLET" run only for requests from DW Core\nDW Core returns the error to the app , VCVP Core only returns the reason
-note right of Adapter #wheat:[SPEC] VCVP Adapter writes its own access log (gateway level) for every request\nincluding requests it rejects itself (e.g. invalid Consumer-Key) , these never reach VCVP Core\nVCVPAuditLog holds only requests that reach VCVP Core
-DW->Adapter: Get schema details | POST /vcvp-adapter/v1/document-schemas/get (VCVP Adapter 06)
-Adapter->Core: Get schema details | POST /vcvp/v1/document-schemas/get (VCVP Core 07)
+note right of Core #wheat:[SPEC] Get schema details and request issuance are used by two callers :\nDW Core (this flow) and agency systems that call VCVP Core directly (system to system issuance)\nSteps marked "caller channel = WALLET" run only for requests from DW Core\nDW Core returns the error to the app , VCVP Core only returns the reason
+note right of Core #wheat:[SPEC] VCVP Core writes an access log for every request\nincluding requests rejected at the Consumer-Key check (e.g. invalid Consumer-Key) , these get no audit record\nVCVPAuditLog holds only requests that pass the Consumer-Key check
+DW->Core: Get schema details | POST /vcvp/v1/document-schemas/get (VCVP Core 07)
+Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET\nwrite access log
 Core->Core: Validate caller authorization
 alt Caller not authorized
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 07 (FailureReason = CALLER_NOT_AUTHORIZED)
-    Adapter<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED
-    DW<--Adapter: 403 | FailureReason = CALLER_NOT_AUTHORIZED
+    DW<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED
     DW->DW: Update issuance request status = CALLER_NOT_AUTHORIZED\n(VC not issued , card/document not added)
     Mini<--DW: Error (response of 1.2) | reason = CALLER_NOT_AUTHORIZED
     Mini-->User: Show error , card/document not added (reason)
@@ -179,8 +177,7 @@ Core->Core: Look up card/document schema in DocumentSchemas table
 alt Schema not found
     note right of Core #wheat:[SPEC] The credential schema must be created by the issuing agency\nVCVP does not create a schema during issuance
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 07 (FailureReason = SCHEMA_NOT_FOUND , EngineCalls)
-    Adapter<--Core: 404 | FailureReason = SCHEMA_NOT_FOUND
-    DW<--Adapter: 404 | FailureReason = SCHEMA_NOT_FOUND
+    DW<--Core: 404 | FailureReason = SCHEMA_NOT_FOUND
     DW->DW: Update issuance request status = SCHEMA_NOT_FOUND\n(VC not issued , card/document not added)
     Mini<--DW: Error (response of 1.2) | reason = SCHEMA_NOT_FOUND
     Mini-->User: Show error , card/document not added (reason)
@@ -192,8 +189,7 @@ else Schema found
 
     alt Wallet request not allowed by the agency
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 07 (FailureReason = WALLET_REQUEST_NOT_ALLOWED , EngineCalls)
-        Adapter<--Core: 403 | FailureReason = WALLET_REQUEST_NOT_ALLOWED
-        DW<--Adapter: 403 | FailureReason = WALLET_REQUEST_NOT_ALLOWED
+        DW<--Core: 403 | FailureReason = WALLET_REQUEST_NOT_ALLOWED
         DW->DW: Update issuance request status = WALLET_REQUEST_NOT_ALLOWED\n(VC not issued , card/document not added)
         Mini<--DW: Error (response of 1.2) | reason = WALLET_REQUEST_NOT_ALLOWED
         Mini-->User: Show error , card/document not added (reason)
@@ -214,8 +210,7 @@ Core->Core: Validate issuer is listed and accreditation not expired
 
 alt Trust validation failed
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 07 (FailureReason = TRUST_FAILED , TrustCheck , EngineCalls)
-    Adapter<--Core: Reject issuance request\nFailureReason = TRUST_FAILED
-    DW<--Adapter: Reject issuance request\nFailureReason = TRUST_FAILED
+    DW<--Core: Reject issuance request\nFailureReason = TRUST_FAILED
     DW->DW: Update issuance request status = TRUST_FAILED\n(VC not issued , card/document not added)
     Mini<--DW: Error (response of 1.2) | reason = TRUST_FAILED
     Mini-->User: Show error , card/document not added (reason)
@@ -229,8 +224,7 @@ note right of Core #wheat:[SPEC] Defined on the schema , not on the issuance req
 Core->Engine: Get schema details | GET /api/credential-schema/v2/{id} (VCVP Core 07) ({id} = CREDENTIAL_SCHEMA_ID from DocumentSchemas.EngineRefs[].RefDocumentSchemaId)
 Core<--Engine: 200 | schema details + Claims[] (ClaimId | Path | Name | Type | Required)
 Core->Core: [AUDIT LOG] Write audit record of VCVP Core 07 (TrustCheck , EngineCalls)
-Adapter<--Core: 200 | schema details + Claims[] (ClaimId | Path | NameEn | NameLocal | Type | Required)\n+ IssuerTrust (Result , CheckedAt , RegistryReference) from TrustCheck
-DW<--Adapter: 200 | schema details + Claims[] + IssuerTrust
+DW<--Core: 200 | schema details + Claims[] (ClaimId | Path | NameEn | NameLocal | Type | Required)\n+ IssuerTrust (Result , CheckedAt , RegistryReference) from TrustCheck
 DW->DW: Keep IssuerTrust to send back to the app at the end of section 6\n(DW reply to the add card/document request of section 1.2)\nthe app shows it in the preview in section 7.2
 
 note over DW #lightgreen: 4. Prepare Data
@@ -245,8 +239,8 @@ note right of DW #wheat:[DATA STORE] DW database\nissuance request\nmapped claim
 DW->DW: [DATA STORE] Store mapped claims + audit log in DW database (issuance request)
 
 note over DW,Core #lightgreen: 5. Request Issuance and Validate Request
-DW->Adapter: Request credential issuance (VC) | POST /vcvp-adapter/v1/documents (VCVP Adapter 07)
-Adapter->Core: Request credential issuance | POST /vcvp/v1/documents (VCVP Core 08)
+DW->Core: Request credential issuance | POST /vcvp/v1/documents (VCVP Core 08)
+Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET\nwrite access log
 Core->Core: Validate caller authorization\nallowed to issue this VC type on behalf of this organisation\n(caller channel WALLET : DocumentSchemas.AllowWalletRequest = true)
 Core->Core: Validate tenant scope\nreferenced data belongs to the caller's organisation
 note right of Core #wheat:[SPEC] Claim name restrictions are enforced at schema creation , not at issuance\nName must not be "0" | must not contain / because it separates nested claim levels\nTotal key length must not exceed 255 characters
@@ -257,8 +251,7 @@ alt Request invalid / unauthorized
     note right of Core #wheat:[ERROR AUDIT] VCVPAuditLog\nFailureReason = REQUEST_REJECTED\nMessageCode , Message (HTTP status of the error)\nEventTime\nActor (OrgCode , ConsumerKey , Channel)\nCorrelation.RequestId
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = REQUEST_REJECTED)
 
-    Adapter<--Core: Reject issuance request
-    DW<--Adapter: Reject issuance request
+    DW<--Core: Reject issuance request
     DW->DW: Update issuance request status = REQUEST_REJECTED\n(VC not issued , card/document not added)
     Mini<--DW: Error (response of 1.2) | reason = REQUEST_REJECTED
     Mini-->User: Show error , card/document not added (reason)
@@ -277,8 +270,7 @@ Core->Core: Select issuer key = the ACTIVE key of that DID\n(Keys.Status = ACTIV
 
 alt Organisation / issuer DID not found , or more than one ACTIVE key
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08\n(FailureReason = ORGANISATION_NOT_FOUND / ISSUER_DID_NOT_FOUND / ISSUER_KEY_AMBIGUOUS)
-    Adapter<--Core: Reject issuance request\nFailureReason = ORGANISATION_NOT_FOUND / ISSUER_DID_NOT_FOUND / ISSUER_KEY_AMBIGUOUS
-    DW<--Adapter: Reject issuance request\nFailureReason = ORGANISATION_NOT_FOUND / ISSUER_DID_NOT_FOUND / ISSUER_KEY_AMBIGUOUS
+    DW<--Core: Reject issuance request\nFailureReason = ORGANISATION_NOT_FOUND / ISSUER_DID_NOT_FOUND / ISSUER_KEY_AMBIGUOUS
     DW->DW: Update issuance request status = ISSUER_SETUP_NOT_FOUND\n(VC not issued , card/document not added)
     Mini<--DW: Error (response of 1.2) | reason = ISSUER_SETUP_NOT_FOUND
     Mini-->User: Show error , card/document not added (reason)
@@ -304,8 +296,7 @@ alt No ACTIVE key / key expired / near expiry / inactive
         note right of Core #wheat:[SPEC] VCVP does not create a new key or DID during issuance\nThe existing DID cannot be updated , so new keys need a new DID\nThe issuing agency creates the new key and DID in the setup phase\nand registers the new DID in the Trust Registry before use
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = ISSUER_KEY_EXPIRED)
 
-        Adapter<--Core: Reject issuance request\nFailureReason = ISSUER_KEY_EXPIRED
-        DW<--Adapter: Reject issuance request\nFailureReason = ISSUER_KEY_EXPIRED
+        DW<--Core: Reject issuance request\nFailureReason = ISSUER_KEY_EXPIRED
         DW->DW: Update issuance request status = ISSUER_KEY_EXPIRED\n(VC not issued , card/document not added)
         Mini<--DW: Error (response of 1.2) | reason = ISSUER_KEY_EXPIRED
         Mini-->User: Show error , card/document not added (reason)
@@ -327,34 +318,26 @@ Engine-->Core: { id } = CREDENTIAL_ID
 
 note right of Core #wheat:[DATA STORE] Documents table\nCREDENTIAL_ID stored in EngineRefs[].RefDocumentId (+ EngineRefs[].EngineName)\nDocumentSchemaId , IssuerOrganizationId , IssuerIdentityId , CitizenHashId , SyncDate
 Core->Core: [DATA STORE] Store document in Documents table
-Core->Core: [AUDIT LOG] Write audit record of VCVP Core 08 (EngineCalls , Correlation.DocumentId)
-Adapter<--Core: 200 | DocumentId
-
-Adapter->Core: Request offer link | POST /vcvp/v1/documents/offer (VCVP Core 09)
-Core->Core: Validate caller authorization
-alt Caller not authorized
-    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = CALLER_NOT_AUTHORIZED , Correlation.DocumentId)
-    Adapter<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED
-    DW<--Adapter: 403 | FailureReason = CALLER_NOT_AUTHORIZED
-    DW->DW: Update issuance request status = CALLER_NOT_AUTHORIZED\n(VC not issued , card/document not added)
-    Mini<--DW: Error (response of 1.2) | reason = CALLER_NOT_AUTHORIZED
-    Mini-->User: Show error , card/document not added (reason)
-    note over User,Mini #wheat: Issuance stops here , card/document not added , sections 7 to 11 do not apply
-else Caller authorized
-    Core->Core: Continue to create offer link
-end
 note right of Core #wheat:[SPEC] credential_offer_uri points to\n/ssi/openid4vci/final-1.0/{credentialSchemaId}/offer/{credentialId}\nThe offer contains credential_issuer , credential_configuration_ids (the vct URL)\nand grants.pre-authorized_code\ntransaction_code is not used , so the offer has no such field\nEngine state changes from CREATED to PENDING after this call
-Core->Engine: Create offer link | POST /api/credential/v1/{CREDENTIAL_ID}/share (VCVP Core 09) (CREDENTIAL_ID from Documents table EngineRefs[].RefDocumentId)
-Engine-->Core: url = openid-credential-offer://?credential_offer_uri=...\nexpiresAt
-
-note right of Core #wheat:[DATA STORE] Documents table\nCREDENTIAL_ID stored in EngineRefs[].RefDocumentId\nurl stored in OfferUrl (temporary)\nexpiresAt stored in OfferExpiresAt\nStatus = PENDING
-Core->Core: [DATA STORE] Store offer in Documents table
+Core->Engine: Create offer link | POST /api/credential/v1/{CREDENTIAL_ID}/share (VCVP Core 08) (CREDENTIAL_ID from Documents table EngineRefs[].RefDocumentId)
+alt Offer link not created (engine error)
+    Engine-->Core: Error
+    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 08 (EngineCalls , Correlation.DocumentId)
+    DW<--Core: 200 | DocumentId , OfferUrl = null
+    DW->Core: Request offer link | POST /vcvp/v1/documents/offer (VCVP Core 09) (DocumentId)
+    Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET\nwrite access log\nValidate caller authorization
+    Core->Engine: Create offer link | POST /api/credential/v1/{CREDENTIAL_ID}/share (VCVP Core 09)
+    Engine-->Core: url , expiresAt
+    Core->Core: [DATA STORE] Store offer in Documents table\n[AUDIT LOG] Write audit record of VCVP Core 09 (EngineCalls , Correlation.DocumentId)
+    DW<--Core: 200 | DocumentId + OfferUrl + ExpiresAt
+else Offer link created
+    Engine-->Core: url = openid-credential-offer://?credential_offer_uri=...\nexpiresAt
+    note right of Core #wheat:[DATA STORE] Documents table\nCREDENTIAL_ID stored in EngineRefs[].RefDocumentId\nurl stored in OfferUrl (temporary)\nexpiresAt stored in OfferExpiresAt\nStatus = PENDING
+    Core->Core: [DATA STORE] Store offer in Documents table
+    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 08 (EngineCalls , Correlation.DocumentId)
+    DW<--Core: 200 | DocumentId + OfferUrl + ExpiresAt
+end
 note right of Core #wheat:[SPEC] Offer expiry\nThe engine does not tell VCVP when an offer expires (credential webhook is sent only for ACCEPTED , SUSPENDED , REVOKED , REJECTED , ERROR)\nThe engine sets INTERACTION_EXPIRED only when its task INTERACTION_EXPIRATION_CHECK is run (POST /api/task/v1/run , scheduled by ops)\nVCVP Core scheduled job : Documents with Status = PENDING and OfferExpiresAt passed , read the engine state first\nengine PENDING or INTERACTION_EXPIRED : Status PENDING → OFFER_EXPIRED | engine OFFERED : keep Status = PENDING\nA renewed offer link sets Status back to PENDING | credential_accepted later still sets Status to ACTIVE\nA credential already in OFFERED (token exchanged) stays OFFERED , the holder can still get the credential with its access token
-
-Core->Core: [AUDIT LOG] Write audit record of VCVP Core 09 (EngineCalls , Correlation.DocumentId)
-Adapter<--Core: 200 | DocumentId + OfferUrl + ExpiresAt
-DW<--Adapter: 200 | DocumentId + OfferUrl + ExpiresAt
 DW->DW: [DATA STORE] Store DocumentId + OfferUrl + ExpiresAt in DW database (issuance request)
 Mini<--DW: 200 (response of 1.2) | issuanceSessionId , OfferUrl , ExpiresAt\nissuerTrust (Result , CheckedAt , RegistryReference)
-
 @enduml
