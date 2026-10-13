@@ -363,6 +363,8 @@ alt Offer link not created (engine error)
     DW<--Core: 200 | DocumentId , OfferUrl = null , IssuerTrust (Result , CheckedAt , RegistryReference)
     DW->Core: Request offer link | POST /vcvp/v1/documents/offer (VCVP Core 09) (DocumentId)
     Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET , ActorType = CITIZEN\nwrite access log\nValidate caller authorization
+    Core->Engine: Get credential state | GET /api/credential/v1/{CREDENTIAL_ID} (VCVP Core 09)
+    Engine-->Core: state = CREATED
     Core->Engine: Create offer link | POST /api/credential/v1/{CREDENTIAL_ID}/share (VCVP Core 09)
     Engine-->Core: url , expiresAt
     Core->Core: [DATA STORE] Store offer in Documents table\n[AUDIT LOG] Write audit record of VCVP Core 09 (EngineCalls , Correlation.DocumentId)
