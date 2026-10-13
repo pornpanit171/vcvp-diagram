@@ -74,17 +74,22 @@ alt Holder accepts credential
         Mini->DW: Request new offer + Token | POST /v1/virtualcards/offer_renew (DW endpoint 05)\n(issuanceSessionId from response of 1.2)
         DW->Core: Request new offer link | POST /vcvp/v1/documents/offer (VCVP Core 09) (DocumentId stored in the DW issuance request)
         Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET , ActorType = CITIZEN\nwrite access log
-        Core->Core: Validate caller authorization
-        alt Caller not authorized
-            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = CALLER_NOT_AUTHORIZED , Correlation.DocumentId)
-            DW<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED
-            DW->DW: Update issuance request status = CALLER_NOT_AUTHORIZED\n(VC not issued , card/document not added)
-            Mini<--DW: Error (response of offer_renew) | reason = CALLER_NOT_AUTHORIZED
-            Mini-->User: Show error , card/document not added (reason)
-            note over User,Mini #wheat: Issuance stops here , card/document not added
-        else Caller authorized
+        Core->Core: Look up the document in Documents table (DocumentId)
+        Core->Core: Check permission by caller channel\nWALLET (DW central Consumer-Key) : the agency allows requests from the wallet on the schema of the document (DocumentSchemas.AllowWalletRequest)\nother channels : the document belongs to the caller's organisation (Documents.IssuerOrganizationId)
+        Core->Core: Check document status is PENDING or OFFER_EXPIRED (Documents.Status)
+        alt Document not found
+            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = DOCUMENT_NOT_FOUND)
+            DW<--Core: 404 | FailureReason = DOCUMENT_NOT_FOUND
+        else Caller not allowed
+            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = WALLET_REQUEST_NOT_ALLOWED / CALLER_NOT_AUTHORIZED , Correlation.DocumentId)
+            DW<--Core: 403 | FailureReason = WALLET_REQUEST_NOT_ALLOWED / CALLER_NOT_AUTHORIZED
+        else Document status not PENDING / OFFER_EXPIRED
+            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = DOCUMENT_STATE_INVALID , Correlation.DocumentId)
+            DW<--Core: 409 | FailureReason = DOCUMENT_STATE_INVALID
+        else Checks passed
             Core->Core: Continue to renew offer link
         end
+        DW->DW: (on error) Update issuance request status = FailureReason\n(VC not issued , card/document not added)
         note right of Engine #wheat:[SPEC] Engine allows share again when state is CREATED , PENDING or INTERACTION_EXPIRED\nAfter the token exchange the state is OFFERED , share is refused (400 BR_0002)\nOFFERED does not change when the offer expires , the holder can still get the credential with its access token\nIn OFFERED state a new credential must be created (section 5 and 6)
         Core->Engine: Get credential state | GET /api/credential/v1/{CREDENTIAL_ID} (VCVP Core 09) (CREDENTIAL_ID from Documents table EngineRefs[].RefDocumentId)
         Engine-->Core: state
