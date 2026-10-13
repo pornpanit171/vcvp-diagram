@@ -69,7 +69,7 @@ else Holder key found
 end
 note right of Mini #wheat:[SPEC] Key found on the device does not confirm it is registered in DW\nDW checks registration by deviceId below
 note right of Mini #wheat:[PENDING] For team discussion : the wallet does not send identity assurance to DW today\nHow the wallet logs in and obtains the IdP ID token is part of the wallet, the wallet\nteam must decide where the code is exchanged
-Mini->DW:Request to add card / document + Token (from Tang Rat login) | POST /v1/virtualcards/sync_queue_list (DW endpoint 03) (deviceId registered with the holder key)\n[PENDING] + IdP ID token
+Mini->DW:Request to add card / document + Token (from Tang Rat login) | POST /v1/virtualcards/sync_queue_list\n(DW endpoint 03) (deviceId registered with the holder key)\n[PENDING] + IdP ID token
 Mini-->User: Show processing (wait for response of 1.2)
 DW->DW: Validate Token to get CitizenId
 note right of DW #wheat:[DATA STORE] DW database (issuance request)\nissuanceSessionId (created by DW)\nCitizenId (from Token)\ndeviceId\nrequested card / document\nstatus\nrequestedAt
@@ -232,7 +232,7 @@ end
 
 note over DW,Engine #orange: 3.2 Read Schema Details
 note right of Core #wheat:[SPEC] Defined on the schema , not on the issuance request (engine name stored in DocumentSchemas field)\nformats[] sets the format to SD_JWT_VC (stored in Formats[].Format)\nallowSuspension must be set to true explicitly , otherwise the credential cannot be suspended (stored in Suspendable)\nRevocation method is not stored in the schema , it comes from config that binds SD_JWT_VC to TOKENSTATUSLIST (stored in Formats[].RevocationMethod)\nEach claim has a technicalKey separate from key , e.g. LicenseNumber -> license_number (stored in Claims[].Path , Claims[].Mappings[].TechnicalKey)\nThe name that appears in the credential is the technicalKey
-Core->Engine: Get schema details | GET /api/credential-schema/v2/{id} (VCVP Core 07) ({id} = CREDENTIAL_SCHEMA_ID from DocumentSchemas.EngineRefs[].RefDocumentSchemaId)
+Core->Engine: Get schema details | GET /api/credential-schema/v2/{id} (VCVP Core 07)\n({id} = CREDENTIAL_SCHEMA_ID from DocumentSchemas.EngineRefs[].RefDocumentSchemaId)
 Core<--Engine: 200 | schema details + Claims[] (ClaimId | Path | Name | Type | Required)
 Core->Core: [AUDIT LOG] Write audit record of VCVP Core 07 (EngineCalls)
 DW<--Core: 200 | schema details + Claims[] (ClaimId | Path | NameEn | NameLocal | Type | Required)
@@ -356,7 +356,7 @@ Engine-->Core: { id } = CREDENTIAL_ID
 note right of Core #wheat:[DATA STORE] Documents table\nCREDENTIAL_ID stored in EngineRefs[].RefDocumentId (+ EngineRefs[].EngineName)\nDocumentSchemaId , IssuerOrganizationId , IssuerIdentityId , CitizenHashId , SyncDate
 Core->Core: [DATA STORE] Store document in Documents table
 note right of Core #wheat:[SPEC] credential_offer_uri points to\n/ssi/openid4vci/final-1.0/{credentialSchemaId}/offer/{credentialId}\nThe offer contains credential_issuer , credential_configuration_ids (the vct URL)\nand grants.pre-authorized_code\ntransaction_code is not used , so the offer has no such field\nEngine state changes from CREATED to PENDING after this call
-Core->Engine: Create offer link | POST /api/credential/v1/{CREDENTIAL_ID}/share (VCVP Core 08) (CREDENTIAL_ID from Documents table EngineRefs[].RefDocumentId)
+Core->Engine: Create offer link | POST /api/credential/v1/{CREDENTIAL_ID}/share (VCVP Core 08)\n(CREDENTIAL_ID from Documents table EngineRefs[].RefDocumentId)
 alt Offer link not created (engine error)
     Engine-->Core: Error
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 08 (TrustCheck , EngineCalls , Correlation.DocumentId)
