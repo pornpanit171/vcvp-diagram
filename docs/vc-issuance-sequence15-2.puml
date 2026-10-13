@@ -55,7 +55,7 @@ Mini->Mini: Keep token_endpoint (for token request in section 8)
 
 note over Mini #violet: 7.1 Wallet Reads Issuer Trust Result
 note right of Mini #wheat:[SPEC] issuerTrust is the result of the issuing side check (VCVP Core , section 5) , not a check by the wallet\ncredential_issuer in the offer is an engine URL , it is not an identifier listed in the Trust Registry\nThe wallet checks the issuer DID (iss) against the Trust Registry in section 9\n(OpenID4VCI 1.0 section 13.5 : the Wallet MUST perform validation checks on the Credential Issuer)
-Mini->Mini: Read issuerTrust from response of 1.2\n(result of the VCVP Core trust check in section 3)
+Mini->Mini: Read issuerTrust from response of 1.2\n(result of the VCVP Core trust check in section 5)
 
 note over User,Mini #lightblue: 7.2 User Reviews Credential
 Mini-->User: Show preview\nissuer (issuer display from metadata) , credential type (credential display from metadata)\nlist of data in the credential (claims display names from metadata , no values)\nissuer trust result (issuerTrust from response of 1.2)
@@ -63,7 +63,7 @@ Mini-->User: Show preview\nissuer (issuer display from metadata) , credential ty
 alt Holder accepts credential
     User->Mini: Accept
 
-    note over Mini,HSM #orange: 8. Issue Credential
+    note over CoreApp,HSM #orange: 8. Issue Credential
 
     Mini->Core: Request access token with pre-authorized_code (from offer) | POST token_endpoint (from authorization server metadata) = /ssi/openid4vci/final-1.0/{credentialSchemaId}/token
     Core->Engine: Request access token with pre-authorized_code (from offer) | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/token (VCVP Core 14)\npre-authorized code
@@ -124,7 +124,8 @@ alt Holder accepts credential
     Mini->CoreApp: Build and sign proof JWT (c_nonce , credential_issuer from the offer as aud)
     note right of CoreApp #wheat:[ENGINE RULE] proof header must contain exactly one of kid or jwk\nnot both and not neither\nThe schema sets KeyStorageSecurity , so the header is kid = index of the key in the key attestation ("0") + key_attestation (WUA) , without jwk\nthe engine then takes the holder public key from the attestation\niss must be omitted because a pre-authorized code is used (OpenID4VCI)\nNormally one signature , with batch enabled one proof per key , all sent together
     CoreApp->CoreApp: Load key attestation (WUA) of the holder key (from section 1.2)
-    alt Key attestation missing or expired (valid 31 days)
+    note right of CoreApp #wheat:[SPEC] No wallet unit or key attestation on this device : register and activate the wallet unit as in section 1.2 first
+    alt Key attestation expired (valid 31 days)
         CoreApp->Core: Request key attestation | POST /ssi/wallet-unit/v1/{id}/issue-attestation\n(wua : proof signed with the holder key , security_level)
         Core->Engine: Request key attestation | POST /ssi/wallet-unit/v1/{id}/issue-attestation
         Engine-->Core: WUA (key-attestation+jwt)
@@ -140,6 +141,7 @@ alt Holder accepts credential
 CoreApp-->Mini: proof JWT (one per holder key)
 
     Mini->Core: Request credential with access token + proof JWT | POST credential_endpoint (from issuer metadata) = /ssi/openid4vci/final-1.0/{credentialSchemaId}/credential\ncredential_configuration_id (from offer) , proofs = { jwt : [ proof JWT ] }
+    note over Core,Engine #orange: 8.2 Verify Holder Proof
     note right of Core #wheat:[ENGINE RULE] The engine checks the key attestation signature with the key in the attestation header\nit does not check who issued the attestation , an attestation signed by the wallet itself is accepted
     Core->Core: Check the key attestation in the proof header is signed by a trusted wallet provider\n(wallet provider list kept by VCVP Core , phase 1 : the VCVP wallet provider)
     alt Key attestation not signed by a trusted wallet provider
@@ -155,7 +157,6 @@ CoreApp-->Mini: proof JWT (one per holder key)
     end
     Core->Engine: Request credential with access token + proof JWT | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/credential (VCVP Core 16)\naccess token + all proof JWTs
 
-    note over Engine #orange: 8.2 Verify Holder Proof
     Engine->Engine: Check typ is openid4vci-proof+jwt
     Engine->Engine: Check exactly one of kid or jwk , extract holder public key
     Engine->Engine: Verify proof signature with that public key
@@ -277,7 +278,7 @@ CoreApp-->Mini: proof JWT (one per holder key)
             CoreApp->CoreApp: Configure usage policy\nrequire holder confirmation before presentation\nrequire holder signing before VP submission
 CoreApp-->Mini: Credential stored | credentialId
 
-            note over Mini,Engine #lightblue: 9.3 Wallet confirms receipt
+            note over CoreApp,Engine #lightblue: 9.3 Wallet confirms receipt
             note right of DW #wheat:[SPEC] Two ways are supported to send credential_accepted\n1. The app calls the notification endpoint directly (from App to VCVP Core , same path)\n2. The app reports to DW and DW sends the notification (used in this flow)\nWay 2 : the app passes notification_id , access token and notification_endpoint to DW\n(OpenID4VCI 1.0 section 11 : the Wallet MUST present a valid access token to the Notification Endpoint)\nDW acts as the server-side component of the Wallet (section 13.4)
             Mini->DW: Report issuance result + Token | POST /v1/virtualcards/issuance_result (DW endpoint 06)\n(issuanceSessionId from response of 1.2 , result = ACCEPTED , notification_id , access token , notification_endpoint)
             DW->DW: Update issuance request status = ACCEPTED
@@ -322,6 +323,5 @@ else Holder rejects credential
     Mini<--DW: Cancel issuance
     Mini-->User: Credential not issued , card/document not added
 end
-
 
 @enduml
