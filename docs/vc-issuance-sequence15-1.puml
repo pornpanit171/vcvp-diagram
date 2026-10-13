@@ -27,13 +27,7 @@ CoreApp->CoreApp: Check holder key exists on this device\n(key alias in Android 
 CoreApp-->Mini: Holder key found / not found
 alt Holder key not found on device (first use of Document Wallet on this device)
     Mini->CoreApp: Create and register the holder key
-    CoreApp->DW: Request holder key registration challenge + Token | POST /dw/v1/holder-keys/challenge (DW endpoint 01)\n(deviceId)
-    DW->DW: [DATA STORE] Store challenge in DW database
-    CoreApp<--DW: challengeId , nonce , expiresAt
-    CoreApp->CoreApp: Generate holder key pair (Secure Enclave / Android Keystore / StrongBox)\nSign challenge with holder private key
-    CoreApp->DW: Submit holder proof + Token | POST /dw/v1/holder-keys/register (DW endpoint 02)\n(signedChallenge , challengeId , publicKey)
-    DW->DW: Verify signed challenge with publicKey\n[DATA STORE] Store holder public key , device status = HOLDER_BOUND
-    CoreApp<--DW: Holder key registered
+    CoreApp->CoreApp: Generate holder key pair (Secure Enclave / Android Keystore / StrongBox)
     note right of CoreApp #wheat:[SPEC] OpenID4VCI 1.0 Appendix D key attestation : a statement signed by the wallet provider that the holder key is kept in secure hardware\nRequired when the schema sets KeyStorageSecurity , the level in the attestation must match it\nThe wallet provider here is the wallet provider of the engine , run by VCVP
     CoreApp->Core: Register wallet unit | POST /ssi/wallet-unit/v1\n(walletProvider , os) , no public key or proof because the app integrity check is on
     Core->Engine: Register wallet unit | POST /ssi/wallet-unit/v1
@@ -63,6 +57,13 @@ alt Holder key not found on device (first use of Document Wallet on this device)
     CoreApp<--Core: WUA
     CoreApp->CoreApp: [DATA STORE] Store WUA with the holder key
     note right of CoreApp #wheat:[PENDING] security_level the app requests : the level set on the schemas (one level in phase 1)
+    CoreApp->DW: Request holder key registration challenge + Token | POST /dw/v1/holder-keys/challenge (DW endpoint 01)\n(deviceId)
+    DW->DW: [DATA STORE] Store challenge in DW database
+    CoreApp<--DW: challengeId , nonce , expiresAt
+    CoreApp->CoreApp: Sign challenge with holder private key
+    CoreApp->DW: Submit holder proof + Token | POST /dw/v1/holder-keys/register (DW endpoint 02)\n(signedChallenge , challengeId , publicKey)
+    DW->DW: Verify signed challenge with publicKey\n[DATA STORE] Store holder public key , device status = HOLDER_BOUND
+    CoreApp<--DW: Holder key registered
     CoreApp-->Mini: Holder key registered
 else Holder key found
     Mini->Mini: Continue
@@ -368,4 +369,6 @@ end
 note right of Core #wheat:[SPEC] Offer expiry\nThe engine does not tell VCVP when an offer expires (credential webhook is sent only for ACCEPTED , SUSPENDED , REVOKED , REJECTED , ERROR)\nThe engine sets INTERACTION_EXPIRED only when its task INTERACTION_EXPIRATION_CHECK is run (POST /api/task/v1/run , scheduled by ops)\nVCVP Core scheduled job : Documents with Status = PENDING and OfferExpiresAt passed , read the engine state first\nengine PENDING or INTERACTION_EXPIRED : Status PENDING → OFFER_EXPIRED | engine OFFERED : keep Status = PENDING\nA renewed offer link sets Status back to PENDING | credential_accepted later still sets Status to ACTIVE\nA credential already in OFFERED (token exchanged) stays OFFERED , the holder can still get the credential with its access token
 DW->DW: [DATA STORE] Store DocumentId + OfferUrl + ExpiresAt + IssuerTrust in DW database (issuance request)\nIssuerTrust goes back to the app in the response of 1.2 , the app shows it in the preview in section 7.2
 Mini<--DW: 200 (response of 1.2) | issuanceSessionId , OfferUrl , ExpiresAt\nissuerTrust (Result , CheckedAt , RegistryReference)
+
+
 @enduml

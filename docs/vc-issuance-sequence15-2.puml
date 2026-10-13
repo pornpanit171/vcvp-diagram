@@ -74,7 +74,7 @@ alt Holder accepts credential
         Mini<--Core: error (offer expired)
         Mini->DW: Request new offer + Token | POST /v1/virtualcards/offer_renew (DW endpoint 05)\n(issuanceSessionId from response of 1.2)
         DW->Core: Request new offer link | POST /vcvp/v1/documents/offer (VCVP Core 09) (DocumentId stored in the DW issuance request)
-        Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET\nwrite access log
+        Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET , ActorType = CITIZEN\nwrite access log
         Core->Core: Validate caller authorization
         alt Caller not authorized
             Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = CALLER_NOT_AUTHORIZED , Correlation.DocumentId)
@@ -102,7 +102,7 @@ alt Holder accepts credential
             DW->DW: Repeat section 5 and 6 (VCVP Core 08)\nto create a new document and offer
         end
 
-        DW->DW: [DATA STORE] Store new DocumentId + OfferUrl + ExpiresAt in DW database (issuance request)
+        DW->DW: [DATA STORE] Store new DocumentId + OfferUrl + ExpiresAt in DW database (issuance request)\n+ new IssuerTrust when section 5 and 6 ran again (state OFFERED)
         Mini<--DW: 200 (response of offer_renew) | new OfferUrl + ExpiresAt
         Mini->Mini: Repeat section 7 with the new OfferUrl
         Mini->Mini: Repeat section 8 from the access token request
@@ -304,7 +304,7 @@ else Holder rejects credential
     User->Mini: Reject
     Mini->DW: Reject offer + Token | POST /v1/virtualcards/offer_reject (DW endpoint 07)\n(issuanceSessionId from response of 1.2 , reason = HOLDER_REJECTED)
     DW->Core: Reject credential | POST /vcvp/v1/wallet/offers/reject (VCVP Core 20)
-    Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET\nwrite access log
+    Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET , ActorType = CITIZEN\nwrite access log
     Core->Core: Validate caller authorization
     alt Caller not authorized
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 20 (FailureReason = CALLER_NOT_AUTHORIZED , Correlation.DocumentId)
@@ -323,5 +323,6 @@ else Holder rejects credential
     Mini<--DW: Cancel issuance
     Mini-->User: Credential not issued , card/document not added
 end
+
 
 @enduml
