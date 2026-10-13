@@ -86,26 +86,32 @@
 
     const diagrams = [
       {
+        id: "vc1",
         title: "VC Issuance - part 1 request until offer link",
         svg: "./docs/vc-issuance-sequence15-1.svg"
       },
 	  {
+        id: "vc2",
         title: "VC Issuance - part 2 wallet receives and stores the credential",
         svg: "./docs/vc-issuance-sequence15-2.svg"
       },
 	  {
+        id: "vp",
         title: "VP Issuance",
         svg: "./docs/vp-issuance-sequence.svg"
       },
 	  {
+        id: "revoke",
         title: "Revoke/Suspend/Reactivate",
         svg: "./docs/Revoke-Suspend-Reactivate-sequence.svg"
       },
 	  {
+        id: "status",
         title: "Status List publication",
         svg: "./docs/Sequence-Lifecycle-Status-List.svg"
       },
 	  {
+        id: "consent",
         title: "Consent Withdrawal",
         svg: "./docs/Sequence-Lifecycle-Consent-Withdrawal-DSAR.svg"
       }
@@ -123,7 +129,17 @@
       document.querySelectorAll(".tab-button").forEach((button, buttonIndex) => {
         button.classList.toggle("active", buttonIndex === index);
       });
+
+      // keep the open tab in the URL , e.g. #vc2 opens VC Issuance part 2
+      history.replaceState(null, "", "#" + diagrams[index].id);
     }
+
+    function showFromHash() {
+      const index = diagrams.findIndex(diagram => "#" + diagram.id === location.hash);
+      showDiagram(index < 0 ? 0 : index);
+    }
+
+    window.addEventListener("hashchange", showFromHash);
 
     diagrams.forEach((diagram, index) => {
 
@@ -139,7 +155,7 @@
       tabs.appendChild(button);
     });
 
-    showDiagram(0);
+    showFromHash();
 
   </script>
 
