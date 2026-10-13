@@ -19,7 +19,7 @@ User->CoreApp: Login (PIN / biometric)
 CoreApp->CoreApp: Login with Tang Rat to get Token
 CoreApp-->User: Login completed , show Tang Rat home
 
-note over Mini,DW #lightblue: 1.2 Request VC Issuance
+note over CoreApp,DW #lightblue: 1.2 Request VC Issuance
 note right of DW #wheat:[SPEC] A card/document is added to the wallet only when both conditions hold\n1. applicant data is linked from the government source of truth (section 2)\n2. the VC is issued and verified by the wallet (sections 8 , 9)\nAny problem in VC issuance returns an error to the wallet , the wallet stops\nNo card/document is added without a VC
 User->Mini: Choose a card/document to add
 Mini->CoreApp: Check holder key exists on this device
@@ -35,18 +35,27 @@ alt Holder key not found on device (first use of Document Wallet on this device)
     DW->DW: Verify signed challenge with publicKey\n[DATA STORE] Store holder public key , device status = HOLDER_BOUND
     CoreApp<--DW: Holder key registered
     note right of CoreApp #wheat:[SPEC] OpenID4VCI 1.0 Appendix D key attestation : a statement signed by the wallet provider that the holder key is kept in secure hardware\nRequired when the schema sets KeyStorageSecurity , the level in the attestation must match it\nThe wallet provider here is the wallet provider of the engine , run by VCVP
-    CoreApp->Core: Register wallet unit | POST /ssi/wallet-unit/v1\n(walletProvider , os , holder public key)
+    CoreApp->Core: Register wallet unit | POST /ssi/wallet-unit/v1\n(walletProvider , os) , no public key or proof because the app integrity check is on
     Core->Engine: Register wallet unit | POST /ssi/wallet-unit/v1
     Engine-->Core: wallet unit id , nonce
     CoreApp<--Core: wallet unit id , nonce
-    CoreApp->CoreApp: Get platform attestation for the nonce\nAndroid Key Attestation (StrongBox) / iOS App Attest
+    CoreApp->CoreApp: Create the attestation key with the nonce as challenge and get the platform attestation\nAndroid Key Attestation (StrongBox) / iOS App Attest
     CoreApp->Core: Activate wallet unit | POST /ssi/wallet-unit/v1/{id}/activate\n(attestation , attestation key proof , device signing key proof)
     Core->Engine: Activate wallet unit | POST /ssi/wallet-unit/v1/{id}/activate
     Engine->Engine: Check app integrity\nAndroid : Google attestation CA , bundleId , signing certificate fingerprint , StrongBox\niOS : Apple App Attest root CA , bundleId
     note right of Engine #wheat:[ENGINE RULE] Android keys kept only in TEE (no StrongBox) are refused (insufficient security level)
     note right of Engine #wheat:[PENDING] For team discussion : Android devices without StrongBox cannot activate the wallet
-    Engine-->Core: Wallet unit activated
-    CoreApp<--Core: Wallet unit activated
+    alt App integrity check failed (e.g. Android without StrongBox)
+        Engine->Engine: Set wallet unit status = ERROR
+        Engine-->Core: Error
+        CoreApp<--Core: Error
+        CoreApp-->Mini: Wallet cannot be activated on this device
+        Mini-->User: Show error , card/document with a VC cannot be added on this device
+        note over User,Mini #wheat: Issuance stops here , sections 1.3 to 11 do not apply
+    else App integrity check passed
+        Engine-->Core: Wallet unit activated
+        CoreApp<--Core: Wallet unit activated
+    end
     CoreApp->Core: Request key attestation | POST /ssi/wallet-unit/v1/{id}/issue-attestation\n(wua : proof signed with the holder key , security_level)
     Core->Engine: Request key attestation | POST /ssi/wallet-unit/v1/{id}/issue-attestation
     Engine->Engine: Sign key attestation (WUA) with the wallet provider key\nattested_keys = holder public key , key_storage = requested level\nvalid 31 days , revocable (Token Status List)
@@ -163,7 +172,7 @@ else Official card/document valid
     DW->DW: Prepare verified claims
 end
 
-note over Mini,DW #lightgray: 2.1 Check VC is possible before issuing
+note over CoreApp,DW #lightgray: 2.1 Check VC is possible before issuing
 DW->DW: Check VC possible for this request (mark set in 1.2)
 alt VC not possible (WALLET_NOT_ACTIVATED from 1.2)
     DW->DW: Update issuance request status = WALLET_NOT_ACTIVATED\n(VC not issued , card/document not added)
@@ -275,7 +284,7 @@ alt Organisation / issuer DID not found , or more than one ACTIVE key
     DW->DW: Update issuance request status = ISSUER_SETUP_NOT_FOUND\n(VC not issued , card/document not added)
     Mini<--DW: Error (response of 1.2) | reason = ISSUER_SETUP_NOT_FOUND
     Mini-->User: Show error , card/document not added (reason)
-    note over User,Mini #wheat: Issuance stops here , card/document not added , sections 5.2 to 11 do not apply
+    note over User,Mini #wheat: Issuance stops here , card/document not added , sections 5.1.1 to 11 do not apply
 else Organisation and issuer DID found , at most one ACTIVE key
     Core->Core: Use ORG_ID , ISSUER_IDENTIFIER_ID , ISSUER_KEY_ID (ACTIVE key , if any)
 end
@@ -286,6 +295,7 @@ Core->Trust: Check issuer DID is listed and accreditation not expired | GET {tru
 Trust-->Core: Accreditation status
 note right of Core #wheat:[AUDIT LOG] VCVPAuditLog (TrustCheck)\ntrust validation result stored in TrustCheck.Result\ntimestamp stored in TrustCheck.CheckedAt\ntrust registry reference stored in TrustCheck.RegistryReference\nWritten once with the audit record of this request , never updated
 Core->Core: Keep trust validation result (for the audit record of VCVP Core 08)
+Core->Core: Validate issuer is listed and accreditation not expired
 alt Trust validation failed
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = TRUST_FAILED , TrustCheck)
     DW<--Core: 403 | FailureReason = TRUST_FAILED
@@ -358,5 +368,4 @@ end
 note right of Core #wheat:[SPEC] Offer expiry\nThe engine does not tell VCVP when an offer expires (credential webhook is sent only for ACCEPTED , SUSPENDED , REVOKED , REJECTED , ERROR)\nThe engine sets INTERACTION_EXPIRED only when its task INTERACTION_EXPIRATION_CHECK is run (POST /api/task/v1/run , scheduled by ops)\nVCVP Core scheduled job : Documents with Status = PENDING and OfferExpiresAt passed , read the engine state first\nengine PENDING or INTERACTION_EXPIRED : Status PENDING → OFFER_EXPIRED | engine OFFERED : keep Status = PENDING\nA renewed offer link sets Status back to PENDING | credential_accepted later still sets Status to ACTIVE\nA credential already in OFFERED (token exchanged) stays OFFERED , the holder can still get the credential with its access token
 DW->DW: [DATA STORE] Store DocumentId + OfferUrl + ExpiresAt + IssuerTrust in DW database (issuance request)\nIssuerTrust goes back to the app in the response of 1.2 , the app shows it in the preview in section 7.2
 Mini<--DW: 200 (response of 1.2) | issuanceSessionId , OfferUrl , ExpiresAt\nissuerTrust (Result , CheckedAt , RegistryReference)
-
 @enduml
