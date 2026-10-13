@@ -1,9 +1,10 @@
 @startuml
 title Digital Credential Issuance part 2 : wallet receives and stores the credential (SD-JWT VC, HSM-backed Issuer, On-Device Credential Model)
+bottomparticipants
 
 participant User
-participant "Document Wallet (Miniapp)" as Mini #lightblue
 participant "Mobile App (Core ทางรัฐ)" as CoreApp #lightblue
+participant "Document Wallet (Miniapp)" as Mini #lightblue
 participant "DW Core" as DW #lightcyan
 participant "VCVP Core" as Core #lightgreen
 participant "one-core (Credential Engine)" as Engine #orange
@@ -53,7 +54,7 @@ Mini<--Core: authorization server metadata | token_endpoint
 Mini->Mini: Keep token_endpoint (for token request in section 8)
 
 note over Mini #violet: 7.1 Wallet Reads Issuer Trust Result
-note right of Mini #wheat:[SPEC] issuerTrust is the result of the issuing side check (VCVP Core , section 3) , not a check by the wallet\ncredential_issuer in the offer is an engine URL , it is not an identifier listed in the Trust Registry\nThe wallet checks the issuer DID (iss) against the Trust Registry in section 9\n(OpenID4VCI 1.0 section 13.5 : the Wallet MUST perform validation checks on the Credential Issuer)
+note right of Mini #wheat:[SPEC] issuerTrust is the result of the issuing side check (VCVP Core , section 5) , not a check by the wallet\ncredential_issuer in the offer is an engine URL , it is not an identifier listed in the Trust Registry\nThe wallet checks the issuer DID (iss) against the Trust Registry in section 9\n(OpenID4VCI 1.0 section 13.5 : the Wallet MUST perform validation checks on the Credential Issuer)
 Mini->Mini: Read issuerTrust from response of 1.2\n(result of the VCVP Core trust check in section 3)
 
 note over User,Mini #lightblue: 7.2 User Reviews Credential
@@ -121,14 +122,37 @@ alt Holder accepts credential
     note over CoreApp #f4cccc: 8.1 Holder Proof of Possession (signing point 1)
 
     Mini->CoreApp: Build and sign proof JWT (c_nonce , credential_issuer from the offer as aud)
-    note right of CoreApp #wheat:[ENGINE RULE] proof header must contain exactly one of kid or jwk\nnot both and not neither\nWe use jwk because the holder has no DID , a kid starting with did: makes the engine resolve the DID instead\niss must be omitted because a pre-authorized code is used (OpenID4VCI)\nWith key attestation the header must be kid = index of the key in the attestation + key_attestation , without jwk\nthe engine then takes the holder public key from the attestation\nNormally one signature , with batch enabled one proof per key , all sent together
+    note right of CoreApp #wheat:[ENGINE RULE] proof header must contain exactly one of kid or jwk\nnot both and not neither\nThe schema sets KeyStorageSecurity , so the header is kid = index of the key in the key attestation ("0") + key_attestation (WUA) , without jwk\nthe engine then takes the holder public key from the attestation\niss must be omitted because a pre-authorized code is used (OpenID4VCI)\nNormally one signature , with batch enabled one proof per key , all sent together
+    CoreApp->CoreApp: Load key attestation (WUA) of the holder key (from section 1.2)
+    alt Key attestation missing or expired (valid 31 days)
+        CoreApp->Core: Request key attestation | POST /ssi/wallet-unit/v1/{id}/issue-attestation\n(wua : proof signed with the holder key , security_level)
+        Core->Engine: Request key attestation | POST /ssi/wallet-unit/v1/{id}/issue-attestation
+        Engine-->Core: WUA (key-attestation+jwt)
+        CoreApp<--Core: WUA
+        CoreApp->CoreApp: [DATA STORE] Store new WUA with the holder key
+    else Key attestation valid
+        CoreApp->CoreApp: Continue
+    end
     loop Repeat per holder key
         CoreApp->CoreApp: Load holder private key (created and registered in section 1.2)\nSecure Enclave (iOS) / Android Keystore / StrongBox
-        CoreApp->CoreApp: Build proof JWT and sign with on-device key\ntyp = openid4vci-proof+jwt , alg = ES256\njwk = holder public key , aud = credential_issuer (from offer) , nonce = c_nonce , iat
+        CoreApp->CoreApp: Build proof JWT and sign with on-device key\ntyp = openid4vci-proof+jwt , alg = ES256\nkid = "0" , key_attestation = WUA (no jwk) , aud = credential_issuer (from offer) , nonce = c_nonce , iat
     end
 CoreApp-->Mini: proof JWT (one per holder key)
 
     Mini->Core: Request credential with access token + proof JWT | POST credential_endpoint (from issuer metadata) = /ssi/openid4vci/final-1.0/{credentialSchemaId}/credential\ncredential_configuration_id (from offer) , proofs = { jwt : [ proof JWT ] }
+    note right of Core #wheat:[ENGINE RULE] The engine checks the key attestation signature with the key in the attestation header\nit does not check who issued the attestation , an attestation signed by the wallet itself is accepted
+    Core->Core: Check the key attestation in the proof header is signed by a trusted wallet provider\n(wallet provider list kept by VCVP Core , phase 1 : the VCVP wallet provider)
+    alt Key attestation not signed by a trusted wallet provider
+        Core->Core: [ERROR AUDIT] Write audit record of /ssi credential (FailureReason = KEY_ATTESTATION_FAILED , Correlation.DocumentId)
+        Mini<--Core: Reject with reason (invalid_proof)
+        Mini->DW: Report issuance result + Token | POST /v1/virtualcards/issuance_result (DW endpoint 06)\n(issuanceSessionId from response of 1.2 , result = FAILED , reason = KEY_ATTESTATION_FAILED)
+        DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , card/document not added)
+        Mini<--DW: Error (response of issuance_result) | reason = KEY_ATTESTATION_FAILED
+        Mini-->User: Show error , card/document not added (reason)
+        note over User,Mini #wheat: VC not stored , card/document not added
+    else Trusted wallet provider
+        Core->Core: Continue
+    end
     Core->Engine: Request credential with access token + proof JWT | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/credential (VCVP Core 16)\naccess token + all proof JWTs
 
     note over Engine #orange: 8.2 Verify Holder Proof
@@ -136,7 +160,7 @@ CoreApp-->Mini: proof JWT (one per holder key)
     Engine->Engine: Check exactly one of kid or jwk , extract holder public key
     Engine->Engine: Verify proof signature with that public key
     Engine->Engine: Check nonce matches and is unused , and aud is this issuer
-    Engine->Engine: Check key attestation if the issuer requires it
+    Engine->Engine: Check key attestation : key_storage contains the level set on the schema (KeyStorageSecurity)\nsignature with the key in the attestation header , not expired , not revoked
 
     alt Proof invalid / offer expired / already used
         Engine-->Core: error
@@ -298,5 +322,6 @@ else Holder rejects credential
     Mini<--DW: Cancel issuance
     Mini-->User: Credential not issued , card/document not added
 end
+
 
 @enduml
