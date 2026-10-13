@@ -1,15 +1,22 @@
 @startuml
 title Digital Credential Issuance part 2 : wallet receives and stores the credential (SD-JWT VC, HSM-backed Issuer, On-Device Credential Model)
-bottomparticipants
 
 participant User
-participant "Mobile App (Core ทางรัฐ)" as CoreApp #lightblue
-participant "Document Wallet (Miniapp)" as Mini #lightblue
-participant "DW Core" as DW #lightcyan
-participant "VCVP Core" as Core #lightgreen
-participant "one-core (Credential Engine)" as Engine #orange
-participant "HSM" as HSM #yellow
-participant "Trust Registry ETDA" as Trust #violet
+participant "<color:#white>Mobile App (Core ทางรัฐ)</color>" as CoreApp #2E7D32
+participant "<color:#white>Document Wallet (Miniapp)</color>" as Mini #2E7D32
+participant "<color:#white>DW Core</color>" as DW #steelblue
+participant "<color:#white>VCVP Core</color>" as Core #3F51B5
+participant "<color:#white>one-core (Credential Engine)</color>" as Engine #chocolate
+participant "<color:#white>HSM</color>" as HSM #darkgoldenrod
+participant "<color:#white>Trust Registry ETDA</color>" as Trust #darkviolet
+
+lifelinestyle CoreApp #2E7D32;2
+lifelinestyle Mini #2E7D32;2
+lifelinestyle DW #steelblue;2
+lifelinestyle Core #3F51B5;2
+lifelinestyle Engine #chocolate;2
+lifelinestyle HSM #darkgoldenrod;2
+lifelinestyle Trust #darkviolet;2
 
 note over Mini,Engine #orange: 7. Wallet Resolves Credential Offer
 
@@ -323,6 +330,17 @@ else Holder rejects credential
     Mini<--DW: Cancel issuance
     Mini-->User: Credential not issued , card/document not added
 end
+
+parallel
+box over User:User
+box over CoreApp #2E7D32:<color:#white>Mobile App (Core ทางรัฐ)</color>
+box over Mini #2E7D32:<color:#white>Document Wallet (Miniapp)</color>
+box over DW #steelblue:<color:#white>DW Core</color>
+box over Core #3F51B5:<color:#white>VCVP Core</color>
+box over Engine #chocolate:<color:#white>one-core (Credential Engine)</color>
+box over HSM #darkgoldenrod:<color:#white>HSM</color>
+box over Trust #darkviolet:<color:#white>Trust Registry ETDA</color>
+parallel off
 
 
 @enduml
