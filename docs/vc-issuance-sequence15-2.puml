@@ -143,7 +143,7 @@ CoreApp-->Mini: proof JWT (one per holder key)
     Mini->Core: Request credential with access token + proof JWT | POST credential_endpoint (from issuer metadata) = /ssi/openid4vci/final-1.0/{credentialSchemaId}/credential\ncredential_configuration_id (from offer) , proofs = { jwt : [ proof JWT ] }
     note over Core,Engine #orange: 8.2 Verify Holder Proof
     note right of Core #wheat:[ENGINE RULE] The engine checks the key attestation signature with the key in the attestation header\nit does not check who issued the attestation , an attestation signed by the wallet itself is accepted
-    Core->Core: Check the key attestation in the proof header is signed by a trusted wallet provider\n(wallet provider list kept by VCVP Core , phase 1 : the VCVP wallet provider)
+    Core->Core: Check the key attestation in the proof header is signed by a trusted wallet provider\n(wallet provider list kept by VCVP Core)
     alt Key attestation not signed by a trusted wallet provider
         Core->Core: [ERROR AUDIT] Write audit record of /ssi credential (FailureReason = KEY_ATTESTATION_FAILED , Correlation.DocumentId)
         Mini<--Core: Reject with reason (invalid_proof)
