@@ -10,14 +10,6 @@ participant "<color:#white>one-core (Credential Engine)</color>" as Engine #choc
 participant "<color:#white>HSM</color>" as HSM #darkgoldenrod
 participant "<color:#white>Trust Registry ETDA</color>" as Trust #darkviolet
 
-lifelinestyle CoreApp #2E7D32;2
-lifelinestyle Mini #2E7D32;2
-lifelinestyle DW #steelblue;2
-lifelinestyle Core #3F51B5;2
-lifelinestyle Engine #chocolate;2
-lifelinestyle HSM #darkgoldenrod;2
-lifelinestyle Trust #darkviolet;2
-
 note over Mini,Engine #orange: 7. Wallet Resolves Credential Offer
 
 note right of Mini #wheat:[SPEC] OpenID4VCI 1.0 section 13.4 Split-Architecture Wallets\nThe app resolves the offer itself , DW Core only passes the OfferUrl and never holds the pre-authorized_code\n(13.4 : a server component with access to pre-authorized codes MAY be able to impersonate the application)\nIssuer trust check is done on the app (design choice , 13.5 requires the Wallet to validate the Credential Issuer)
@@ -330,17 +322,6 @@ else Holder rejects credential
     Mini<--DW: Cancel issuance
     Mini-->User: Credential not issued , card/document not added
 end
-
-parallel
-box over User:User
-box over CoreApp #2E7D32:<color:#white>Mobile App (Core ทางรัฐ)</color>
-box over Mini #2E7D32:<color:#white>Document Wallet (Miniapp)</color>
-box over DW #steelblue:<color:#white>DW Core</color>
-box over Core #3F51B5:<color:#white>VCVP Core</color>
-box over Engine #chocolate:<color:#white>one-core (Credential Engine)</color>
-box over HSM #darkgoldenrod:<color:#white>HSM</color>
-box over Trust #darkviolet:<color:#white>Trust Registry ETDA</color>
-parallel off
 
 
 @enduml

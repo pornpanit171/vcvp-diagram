@@ -11,15 +11,6 @@ participant "<color:#white>one-core (Credential Engine)</color>" as Engine #choc
 participant "<color:#white>HSM</color>" as HSM #darkgoldenrod
 participant "<color:#white>Trust Registry ETDA</color>" as Trust #darkviolet
 
-lifelinestyle CoreApp #2E7D32;2
-lifelinestyle Mini #2E7D32;2
-lifelinestyle DW #steelblue;2
-lifelinestyle Agency #gray;2
-lifelinestyle Core #3F51B5;2
-lifelinestyle Engine #chocolate;2
-lifelinestyle HSM #darkgoldenrod;2
-lifelinestyle Trust #darkviolet;2
-
 note over Engine,HSM #wheat:[SPEC] Issuer signing keys are HSM-backed\nPrivate key is generated inside HSM\nPrivate key never leaves HSM\nEngine stores key metadata and HSM reference\nVCVP Core receives ISSUER_KEY_ID and publicKey only\n[IN DEVELOPMENT] engine v1.86.1 key storage supports only INTERNAL , AZURE_VAULT , SIGN8\nSECURE_ELEMENT , REMOTE_SECURE_ELEMENT , no HSM , PKCS11 removed since v1.78.2
 
 note over User,CoreApp #lightblue: 1.1 User Login
@@ -386,17 +377,5 @@ end
 note right of Core #wheat:[SPEC] Offer expiry\nThe engine does not tell VCVP when an offer expires (credential webhook is sent only for ACCEPTED , SUSPENDED , REVOKED , REJECTED , ERROR)\nThe engine sets INTERACTION_EXPIRED only when its task INTERACTION_EXPIRATION_CHECK is run (POST /api/task/v1/run , scheduled by ops)\nVCVP Core scheduled job : Documents with Status = PENDING and OfferExpiresAt passed , read the engine state first\nengine PENDING or INTERACTION_EXPIRED : Status PENDING → OFFER_EXPIRED | engine OFFERED : keep Status = PENDING\nA renewed offer link sets Status back to PENDING | credential_accepted later still sets Status to ACTIVE\nA credential already in OFFERED (token exchanged) stays OFFERED , the holder can still get the credential with its access token
 DW->DW: [DATA STORE] Store DocumentId + OfferUrl + ExpiresAt + IssuerTrust in DW database (issuance request)\nIssuerTrust goes back to the app in the response of 1.2 , the app shows it in the preview in section 7.2
 Mini<--DW: 200 (response of 1.2) | issuanceSessionId , OfferUrl , ExpiresAt\nissuerTrust (Result , CheckedAt , RegistryReference)
-
-parallel
-box over User:User
-box over CoreApp #2E7D32:<color:#white>Mobile App (Core ทางรัฐ)</color>
-box over Mini #2E7D32:<color:#white>Document Wallet (Miniapp)</color>
-box over DW #steelblue:<color:#white>DW Core</color>
-box over Agency #gray:<color:#white>Government API Source of Truth</color>
-box over Core #3F51B5:<color:#white>VCVP Core</color>
-box over Engine #chocolate:<color:#white>one-core (Credential Engine)</color>
-box over HSM #darkgoldenrod:<color:#white>HSM</color>
-box over Trust #darkviolet:<color:#white>Trust Registry ETDA</color>
-parallel off
 
 @enduml
