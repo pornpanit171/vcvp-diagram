@@ -1,0 +1,32 @@
+@startuml
+title ETDA Trusted List Load (lazy pull from the ETDA CDN , used by the issuance and presentation sequences)
+
+participant "<color:#white>VCVP Core</color>" as Core #3F51B5
+participant "<color:#white>ETDA Trusted List (CDN)</color>" as Trust #0B2E6B
+
+note over Core,Trust #violet: Load ETDA Trusted List (when a transaction needs it)
+note right of Core #wheat:[SPEC] VCVP Core issuance : iss.txt , wp.txt | VCVP Core presentation : ver.txt , wp.txt , iss.txt
+note left of Trust #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• page 12.1 , 12.1.2 (MUST)  three Trusted List files\n• 12.8 (MUST , MUST NOT)  lazy pull , no polling
+note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.8.1  fetch and verify the Trusted List\n• page 12.1 , 12.1.6 (MUST)  rules for list users
+note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.1.1 (MUST)  ETDA public key\ndid:web Method Specification (W3C CCG)\n• Read (Resolve)  did:web:etda.or.th to /.well-known/did.json
+Core->Trust: Get ETDA public key | GET https://etda.or.th/.well-known/did.json
+Trust-->Core: DID document (Trusted List signing key)
+note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• page 12.1 , 12.1.3 (MUST)  conditional request with ETag\n• appendix 8.1 D.1.1 (MUST)  fetch the Trusted List\nRFC 9110\n• 8.8.3  ETag is a response header\n• 13.1.2  If-None-Match\n• 15.4.5  304 Not Modified
+Core->Trust: Get the Trusted List needed |\nGET https://trustme.etda.or.th/.well-known/iss.txt , ver.txt or wp.txt\nAccept: application/jwt , If-None-Match: {ETag}
+Trust-->Core: 200 compact signed JWT + ETag | 304 Not Modified
+Core->Core: Verify the Trusted List signature with the ETDA key\nLoTEType = the type of this list , ListIssueDateTime , LoTESequenceNumber not lower than the cached one , NextUpdate not passed
+alt Trusted List checks pass
+    Core->Core: Save the file and the new ETag
+else Signature , LoTEType , LoTESequenceNumber , ListIssueDateTime or NextUpdate check fails
+    Core->Core: Reject the file , keep the cached Trusted List unchanged
+end
+note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• page 12.1 , 12.1.4 (MUST)  reject when not confirmed\n• 7.7 (MUST)  NextUpdate\n• 6.5.2  fail-closed
+note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.7 (MUST)  fixed TTL and fail policy\n• 8.6 (SHOULD)  TTL at most 24 hours\n• 12.6 (MUST)  emergency revocation within 1 hour
+alt Trusted List invalid , or the CDN cannot be reached and the last successful check is older than 1 hour or NextUpdate has passed
+    Core->Core: Fail closed : steps that need the Trusted List reject the request
+else Trusted List valid (verified file , within 1 hour of the last successful check , NextUpdate not passed)
+    Core->Core: Use the Trusted List for the trust decision of this transaction
+end
+note over Core,Trust #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.1.1 (MUST)  the wallet fetches the same way
+note over Core,Trust #wheat:[SPEC] wallet side : DW Core keeps the cached file for the app , the app verifies the signature again before use
+@enduml

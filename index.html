@@ -86,9 +86,16 @@
 
     const diagrams = [
       {
+        id: "trust",
+        title: "ETDA Trusted List Load",
+        svg: "./docs/trust-list-load-sequence.svg",
+        reviewed: true
+      },
+	  {
         id: "vc1",
         title: "VC Issuance - part 1 request until offer link",
-        svg: "./docs/vc-issuance-sequence15-1.svg"
+        svg: "./docs/vc-issuance-sequence15-1.svg",
+        reviewed: true
       },
 	  {
         id: "vc2",
@@ -97,13 +104,23 @@
       },
 	  {
         id: "vp",
-        title: "VP Issuance",
-        svg: "./docs/vp-issuance-sequence.svg"
+        title: "VP Presentation - part 1 verifier setup and verification request",
+        svg: "./docs/vp-presentation-sequence16-1.svg"
+      },
+	  {
+        id: "vp2",
+        title: "VP Presentation - part 2 QR scan to verifier result",
+        svg: "./docs/vp-presentation-sequence16-2.svg"
       },
 	  {
         id: "revoke",
         title: "Revoke/Suspend/Reactivate",
         svg: "./docs/Revoke-Suspend-Reactivate-sequence.svg"
+      },
+	  {
+        id: "keycomp",
+        title: "Issuer Key Compromise",
+        svg: "./docs/Key-Compromise-sequence.svg"
       },
 	  {
         id: "status",
@@ -117,31 +134,34 @@
       }
     ];
 
+    // only the diagrams reviewed with the user are shown , the others stay listed for the build scripts
+    const shown = diagrams.filter(diagram => diagram.reviewed);
+
     const tabs = document.getElementById("tabs");
     const diagramImage = document.getElementById("diagramImage");
 
     function showDiagram(index) {
 
       // "#" in a file name must be encoded, otherwise the browser treats it as a URL fragment
-      diagramImage.src = diagrams[index].svg.replace(/#/g, "%23");
-      diagramImage.alt = diagrams[index].title;
+      diagramImage.src = shown[index].svg.replace(/#/g, "%23");
+      diagramImage.alt = shown[index].title;
 
       document.querySelectorAll(".tab-button").forEach((button, buttonIndex) => {
         button.classList.toggle("active", buttonIndex === index);
       });
 
       // keep the open tab in the URL , e.g. #vc2 opens VC Issuance part 2
-      history.replaceState(null, "", "#" + diagrams[index].id);
+      history.replaceState(null, "", "#" + shown[index].id);
     }
 
     function showFromHash() {
-      const index = diagrams.findIndex(diagram => "#" + diagram.id === location.hash);
+      const index = shown.findIndex(diagram => "#" + diagram.id === location.hash);
       showDiagram(index < 0 ? 0 : index);
     }
 
     window.addEventListener("hashchange", showFromHash);
 
-    diagrams.forEach((diagram, index) => {
+    shown.forEach((diagram, index) => {
 
       const button = document.createElement("button");
 
