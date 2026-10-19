@@ -119,7 +119,15 @@ note right of Core #wheat:[SPEC] VCVPAuditLog for every request , also those rej
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.6 , 8.8 (MUST)  audit log at least 7 years
 DW->Core: Get the default schema of the requested credential type | POST /api/credential-schema/v1/get-by-organisation (VCVP Core 07)\nOrgCode , Source , ServiceCode
 Core->Core: Check Consumer-Key (DW Core central Consumer-Key) and its permission for this endpoint\ncaller channel = WALLET , ActorType = CITIZEN
-alt Caller not authorized
+note right of Core #wheat:[STANDARD] RFC 9110\n• 15.5.2 (MUST)  401 when the request has no valid credentials , with WWW-Authenticate\n• 15.5.4  403 when the caller is known but not allowed
+alt Consumer-Key invalid or missing
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 07 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
+    DW<--Core: 401 + WWW-Authenticate | FailureReason = CALLER_NOT_AUTHENTICATED
+    DW->DW: Update issuance request status = CALLER_NOT_AUTHENTICATED\n(credential not issued)
+    Mini<--DW: Error (response of 1.2) | reason = CALLER_NOT_AUTHENTICATED
+    Mini-->User: Show error , credential not added (reason)
+    note over User,Mini #wheat: Issuance stops here , credential not added , sections 1.4.1 to 11 do not apply
+else Caller not authorized
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 07 (FailureReason = CALLER_NOT_AUTHORIZED)
     DW<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED
     DW->DW: Update issuance request status = CALLER_NOT_AUTHORIZED\n(credential not issued)
@@ -243,8 +251,14 @@ note over DW,Core #lightgreen: 5. Request Issuance and Validate Request
 DW->Core: Request credential issuance | POST /api/credential/v1 (VCVP Core 08)
 note right of Core #wheat:[SPEC] caller channel = WALLET , ActorType = CITIZEN , the schema belongs to the agency of OrgCode (CredentialSchemas.OrganizationId)\nWALLET : CredentialSchemas.AllowWalletRequest = true | other channels : OrgCode is the organisation of the caller's Consumer-Key
 Core->Core: Check Consumer-Key (DW Core central Consumer-Key) and caller authorization
-alt Caller not authorized
-    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08\n(FailureReason = CALLER_NOT_AUTHORIZED / WALLET_REQUEST_NOT_ALLOWED , OrgCode and Actor empty when the Consumer-Key is invalid)
+alt Consumer-Key invalid or missing
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
+    DW<--Core: 401 + WWW-Authenticate | FailureReason = CALLER_NOT_AUTHENTICATED
+    DW->DW: Update issuance request status = FailureReason\n(credential not issued)
+    Mini<--DW: Error (response of 1.2) | reason = FailureReason
+    Mini-->User: Show error , credential not added (reason)
+else Caller not authorized
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08\n(FailureReason = CALLER_NOT_AUTHORIZED / WALLET_REQUEST_NOT_ALLOWED)
     DW<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED / WALLET_REQUEST_NOT_ALLOWED
     DW->DW: Update issuance request status = FailureReason\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = FailureReason

@@ -214,9 +214,10 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
         note right of DW #wheat:[SPEC] next request (DW endpoint 18 , or DW endpoint 05 from the repeated section 8) : DW Core renews the offer first
         DW->Core: Request new offer link | POST /api/credential/v1/share (VCVP Core 09) (CredentialId stored in the DW issuance request)
         Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET , ActorType = CITIZEN
+        note right of Core #wheat:[STANDARD] RFC 9110\n• 15.5.2 (MUST)  401 when the request has no valid credentials , with WWW-Authenticate\n• 15.5.4  403 when the caller is known but not allowed
         alt Consumer-Key invalid or missing
-            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = CALLER_NOT_AUTHORIZED , OrgCode and Actor empty)
-            DW<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED
+            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
+            DW<--Core: 401 + WWW-Authenticate | FailureReason = CALLER_NOT_AUTHENTICATED
             DW->DW: Update issuance request status = FailureReason , answer the waiting app request with the error\n(VC not issued , credential not added)
         else Consumer-Key valid
             Core->Core: Continue
@@ -566,8 +567,12 @@ else Holder rejects credential
     DW->Core: Reject credential | POST /api/credential/v1/offer-reject (VCVP Core 20)
     note right of Core #wheat:[SPEC] caller channel = WALLET , ActorType = CITIZEN , the credential belongs to the citizen of the request
     Core->Core: Check Consumer-Key (DW Core central Consumer-Key) and caller authorization
-    alt Caller not authorized
-        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 20 (FailureReason = CALLER_NOT_AUTHORIZED , OrgCode and Actor empty when the Consumer-Key is invalid)
+    alt Consumer-Key invalid or missing
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 20 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
+        DW<--Core: 401 + WWW-Authenticate | FailureReason = CALLER_NOT_AUTHENTICATED
+        note over DW,Core #wheat: Reject not recorded in VCVP , the offer still expires by itself
+    else Caller not authorized
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 20 (FailureReason = CALLER_NOT_AUTHORIZED)
         DW<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED
         note over DW,Core #wheat: Reject not recorded in VCVP , the offer still expires by itself
     else Caller authorized
