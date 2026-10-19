@@ -385,7 +385,7 @@ note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 8.3.1.2  invalid_nonce , 
             Mini->Mini: Repeat section 8 with the new c_nonce , it calls /dw/v1/issuance/token (DW endpoint 05) again
         end
         note right of DW #wheat:[SPEC] next request (DW endpoint 18 , or DW endpoint 05 from the repeated section 8) : DW Core closes the old credential and makes a new one
-        note right of DW #wheat:[SPEC] the old credential is replaced by a new one , DW Core closes it\nrequest : old CredentialId , Reason = SUPERSEDED , ReasonDetail = access token expired , replaced by a new credential
+        note right of DW #wheat:[SPEC] the old credential is replaced by a new one , DW Core closes it\nrequest : CitizenId of the request , old CredentialId , Reason = SUPERSEDED , ReasonDetail = access token expired , replaced by a new credential
         DW->Core: Close the old credential | POST /api/credential/v1/offer-reject (VCVP Core 20)
         Core->Core: [DATA STORE] Update the old credential in Credentials table : Status = ISSUANCE_FAILED , Reason = SUPERSEDED , ReasonDetail
         note right of Core #wheat:[ENGINE RULE] the engine has no cancel state for an OFFERED credential : REVOKED only from ACCEPTED , SUSPENDED or EXPIRING ,\nREJECTED and ERROR only from a wallet notification
