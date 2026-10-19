@@ -148,7 +148,7 @@ alt Credential type or default schema not found
     Mini-->User: Show error , credential not added (reason)
     note over User,Mini #wheat: Issuance stops here , credential not added , sections 1.4.2 to 11 do not apply
 else Schema found
-    Core->Core: Map CredentialSchemaId to ENGINE_CREDENTIAL_SCHEMA_ID and the engine to call\n(ENGINE_CREDENTIAL_SCHEMA_ID = CredentialSchemas.EngineRefs[].RefCredentialSchemaId , engine = EngineRefs[].EngineName)
+    Core->Core: Read the engine to call from the schema (CredentialSchemas.EngineName)
     note right of Core #wheat:[SPEC] one central WALLET Consumer-Key , issued by VCVP administrators to DW Core only | the agency opts in per schema , checked again in section 5
     note right of Core #wheat:[SPEC] WALLET (DW central Consumer-Key) : the agency allows requests from the wallet on this schema (CredentialSchemas.AllowWalletRequest)\nother channels : the schema belongs to the caller's organisation
     Core->Core: Check permission by caller channel
@@ -167,7 +167,7 @@ end
 
 
 note over DW,Engine #orange: 1.4.2 Read Schema Details
-Core->Engine: Get schema details | GET /api/credential-schema/v2/{ENGINE_CREDENTIAL_SCHEMA_ID}
+Core->Engine: Get schema details | GET /api/credential-schema/v2/{CredentialSchemaId}
 Core<--Engine: 200 | schema details + Claims[] (ClaimId | Path | Name | Type | Required)
 Core->Core: [AUDIT LOG] Write audit record of VCVP Core 07 : who read which schema (EngineCalls)
 DW<--Core: 200 | CredentialSchemaId , RequiredLoA (of the credential type , CredentialTypes) , schema details + Claims[] (ClaimId | Path | NameEn | NameLocal | Type | Required)
@@ -300,7 +300,7 @@ note right of Core #wheat:[SPEC] organisation , issuer key and DID are prepared 
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.7  DNSSEC for .go.th
 
 Core->Core: Look up agency organisation in Organizations table (OrgCode)
-note right of Core #wheat:[SPEC] issuer DID = CredentialSchemas.IssuerIdentityId , or IssuerIdentityId when the caller sent it\nengine to call = CredentialSchemas.EngineRefs[].EngineName
+note right of Core #wheat:[SPEC] issuer DID = CredentialSchemas.IssuerIdentityId , or IssuerIdentityId when the caller sent it\nengine to call = CredentialSchemas.EngineName
 Core->Core: Select the issuer DID
 note right of Core #wheat:[SPEC] key status RESERVED / ACTIVE / DEPRECATED / REVOKED , one ACTIVE key per identity , more than one = configuration error\nVCVP Core always sends issuer and issuerKey to the engine
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 13.7.7.1 (informative)  key lifecycle states
@@ -369,26 +369,25 @@ else Key active
 end
 
 note over Core,Engine #orange: 6. Create Digital Credential and Offer
-Core->Core: Map the issuer DID and key to ENGINE_ISSUER_IDENTIFIER_ID and ENGINE_ISSUER_KEY_ID\n(ENGINE_ISSUER_IDENTIFIER_ID = Identities.EngineRefs[].RefIdentityId , ENGINE_ISSUER_KEY_ID = Keys.EngineRefs[].RefKeyId)
 Core->Core: Use ClaimId from the request as the engine claim id\n(CredentialSchemas.Claims[].ClaimId is the claim id created by the engine)
 note right of Engine #wheat:[ENGINE RULE] the credential is created unsigned (state CREATED) , no status list index yet\nthe engine signs it when the wallet requests the credential (part 2 , VCVP Core 16)
-note right of Core #wheat:[SPEC] request : credentialSchemaId = ENGINE_CREDENTIAL_SCHEMA_ID , issuer = ENGINE_ISSUER_IDENTIFIER_ID , issuerKey = ENGINE_ISSUER_KEY_ID\nprotocol = OPENID4VCI_FINAL1 , claimValues [ claimId , path , value ]
+note right of Core #wheat:[SPEC] request : credentialSchemaId = CredentialSchemaId , issuer = IdentityId of the issuer , issuerKey = KeyId of the issuer key\nprotocol = OPENID4VCI_FINAL1 , claimValues [ claimId , path , value ]
 Core->Engine: Create credential | POST /api/credential/v1
-Engine-->Core: { id } = ENGINE_CREDENTIAL_ID
+Engine-->Core: { id } = CredentialId
 
-note right of Core #wheat:[DATA STORE] Credentials table\nENGINE_CREDENTIAL_ID stored in EngineRefs[].RefCredentialId (+ EngineRefs[].EngineName)\nCredentialSchemaId , IssuerOrganizationId , IssuerIdentityId , IssuerKeyId , CitizenHashId (hash of CitizenId , cannot be turned back , the raw CitizenId is not stored) , SyncDate\nExpiredAt (validity of the schema , CredentialSchemas.ValidityYears)
+note right of Core #wheat:[DATA STORE] Credentials table\nCredentialId = id from the engine (+ EngineName)\nCredentialSchemaId , IssuerOrganizationId , IssuerIdentityId , IssuerKeyId , CitizenHashId (hash of CitizenId , cannot be turned back , the raw CitizenId is not stored) , SyncDate\nExpiredAt (validity of the schema , CredentialSchemas.ValidityYears)
 Core->Core: [DATA STORE] Store credential in Credentials table
 note right of Core #wheat:[STANDARD] OpenID4VCI 1.0\n• 4.1.1  Credential Offer parameters\nThai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.1.2 (example)  pre-authorized_code 5 minutes
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.3 (MUST)  tx_code from IAL2.1\n• appendix 8.1 D.2 (proposal)  tx_code recommended for IAL2.1 - 2.2\nOpenID4VCI 1.0\n• 3.5  tx_code by a second channel\n• 4.1.1  tx_code in the offer
 note right of Core #wheat:[CONDITION] When this runs : only for credential types with RequiredLoA IAL2.1 or higher\ntheir schema is created with transactionCode (NUMERIC , 6 digits) , IAL1 types have no transactionCode and skip the tx_code steps\nthe user must enter the code before the pre-authorized_code expires (300 seconds) ,\notherwise the user asks for a new code and the offer is renewed (part 2 section 8)
-Core->Engine: Create offer link | POST /api/credential/v1/{ENGINE_CREDENTIAL_ID}/share
+Core->Engine: Create offer link | POST /api/credential/v1/{CredentialId}/share
 alt Offer link not created (engine error)
     Engine-->Core: Error
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 08 : which credential was issued , to whom , by which issuer key (TrustCheck , EngineCalls , Correlation.CredentialId)
     DW<--Core: 200 | CredentialId , OfferUrl = null , IssuerTrust (Result , CheckedAt , RegistryReference)
     DW->Core: Request offer link | POST /api/credential/v1/share (VCVP Core 09) (CredentialId)
     Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET , ActorType = CITIZEN\nValidate caller authorization
-    Core->Engine: Create offer link | POST /api/credential/v1/{ENGINE_CREDENTIAL_ID}/share
+    Core->Engine: Create offer link | POST /api/credential/v1/{CredentialId}/share
     Engine-->Core: url , expiresAt , transactionCode (only when the schema has transactionCode)
     Core->Core: [DATA STORE] Update the same credential in Credentials table : set OfferUrl and OfferExpiresAt , Status = PENDING\n[AUDIT LOG] Write audit record of VCVP Core 09 : when the offer link was created for the credential (EngineCalls , Correlation.CredentialId)
     DW<--Core: 200 | CredentialId + OfferUrl + ExpiresAt + TransactionCode (only when the schema has transactionCode)
@@ -396,7 +395,7 @@ else Offer link created
     note right of Engine #wheat:[ENGINE RULE] schema transactionCode = { type NUMERIC or ALPHANUMERIC , length 4 to 10 , description }\nshare returns transactionCode only for such a schema , every share returns a new code
     Engine-->Core: url = openid-credential-offer://?credential_offer_uri=...\nexpiresAt , transactionCode (only when the schema has transactionCode)
     Core->Core: transactionCode goes only into the response to DW Core , it is not logged and not stored
-    note right of Core #wheat:[DATA STORE] Credentials table\nENGINE_CREDENTIAL_ID stored in EngineRefs[].RefCredentialId\nurl stored in OfferUrl (temporary)\nexpiresAt stored in OfferExpiresAt\nStatus = PENDING
+    note right of Core #wheat:[DATA STORE] Credentials table\nCredentialId = id from the engine\nurl stored in OfferUrl (temporary)\nexpiresAt stored in OfferExpiresAt\nStatus = PENDING
     Core->Core: [DATA STORE] Store offer in Credentials table
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 08 : which credential was issued , to whom , by which issuer key (TrustCheck , EngineCalls , Correlation.CredentialId)
     DW<--Core: 200 | CredentialId + OfferUrl + ExpiresAt + IssuerTrust (Result , CheckedAt , RegistryReference) + TransactionCode (only when the schema has transactionCode)
