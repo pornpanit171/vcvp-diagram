@@ -117,7 +117,7 @@ note over DW,Engine #violet: 1.4 Get Schema Details
 note right of Core #wheat:[SPEC] two callers : DW Core (this flow) and agency systems (system to system) | steps marked caller channel = WALLET run only for DW Core
 note right of Core #wheat:[SPEC] VCVPAuditLog for every request , also those rejected at the Consumer-Key check (OrgCode and Actor empty) , kept 7 years
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.6 , 8.8 (MUST)  audit log at least 7 years
-DW->Core: Get the default schema of the requested credential type | POST /api/credential-schema/v1/default (VCVP Core 07)\nOrgCode , Source , ServiceCode
+DW->Core: Get the default schema of the requested credential type | POST /api/credential-schema/v1/get-by-organisation (VCVP Core 07)\nOrgCode , Source , ServiceCode
 Core->Core: Check Consumer-Key (DW Core central Consumer-Key) and its permission for this endpoint\ncaller channel = WALLET , ActorType = CITIZEN
 alt Caller not authorized
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 07 (FailureReason = CALLER_NOT_AUTHORIZED)

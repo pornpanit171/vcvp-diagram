@@ -431,8 +431,8 @@ note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 8.3.1.2  invalid_nonce , 
         Engine->Engine: Build SD_JWT_VC and compute _sd digests of selectively disclosable claims
 
         note right of HSM #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.2 G-01 (MUST)  HSM FIPS Level 3\n• 12.2 (MUST)  key ceremony\n• chapter 14 SC-12 , SC-13 , SC-14 (informative)  HSM certificate , ceremony report , rotation plan
-        note right of HSM #FFCDD2:[PENDING] waiting for ETDA and AWS | Thai VC ARF 2.0 DRAFT 0\nissue : 8.1.2 (MUST) asks EdDSA and ES256 , the AWS KMS HSM certificate (#4884) does not approve EdDSA\nquestion : ETDA : is ES256 enough | AWS : are the HSMs of ap-southeast-7 and production under #4884
-        Engine->HSM: Sign SD-JWT (JWS) with issuer signing key (ECDSA / ES256)
+        note right of HSM #FFCDD2:[PENDING] waiting for ETDA and AWS | Thai VC ARF 2.0 DRAFT 0\nissue : 8.1.2 (MUST) asks EdDSA and ES256 , VCVP accepts both , the AWS KMS HSM certificate (#4884) does not approve EdDSA\nquestion : ETDA : does an Ed25519 issuer key in AWS KMS meet G-01 | AWS : are the HSMs of ap-southeast-7 and production under #4884
+        Engine->HSM: Sign SD-JWT (JWS) with issuer signing key (ES256 or EdDSA , the algorithm of the issuer key)
         HSM-->Engine: Issuer signature
 
         Engine->Engine: State OFFERED → ACCEPTED
