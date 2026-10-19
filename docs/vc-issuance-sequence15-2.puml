@@ -7,248 +7,513 @@ participant "<color:#white>Document Wallet (Miniapp)</color>" as Mini #2E7D32
 participant "<color:#white>DW Core</color>" as DW #steelblue
 participant "<color:#white>VCVP Core</color>" as Core #3F51B5
 participant "<color:#white>one-core (Credential Engine)</color>" as Engine #chocolate
-participant "<color:#white>HSM</color>" as HSM #darkgoldenrod
-participant "<color:#white>Trust Registry ETDA</color>" as Trust #darkviolet
+participant "<color:#white>HSM (AWS KMS)</color>" as HSM #darkgoldenrod
+participant "<color:#white>ETDA Trusted List (CDN)</color>" as Trust #0B2E6B
 
-note over Mini,Engine #orange: 7. Wallet Resolves Credential Offer
+note over DW,Trust #violet: 0. Load ETDA Trusted List (when a transaction needs it)
+note right of DW #wheat:[CONDITION] before this flow (setup , outside the system) : the issuing agency is registered in iss.txt (DID , keys , credential types)\nand DW Core in wp.txt as wallet provider (certificate for WUA signatures , location of the WUA status lists) | WUA = WIA and key attestation\nThai VC ARF 2.0 DRAFT 0 9.9 (MUST) , 10.4.2
+note right of DW #wheat:[SPEC] steps in the ETDA Trusted List Load sequence (first tab) | DW Core loads iss.txt (section 7) , VCVP Core loads wp.txt (section 8)
 
-note right of Mini #wheat:[SPEC] OpenID4VCI 1.0 section 13.4 Split-Architecture Wallets\nThe app resolves the offer itself , DW Core only passes the OfferUrl and never holds the pre-authorized_code\n(13.4 : a server component with access to pre-authorized codes MAY be able to impersonate the application)\nIssuer trust check is done on the app (design choice , 13.5 requires the Wallet to validate the Credential Issuer)
+note over DW,Engine #orange: 7. DW Core Resolves the Credential Offer (inside request 1.2)
 
-Mini->Mini: Parse OfferUrl to get credential_offer_uri
+note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 13.4 (MUST NOT)  sensitive data only through a fully trusted server part of the wallet\n• 13.5 (MUST)  the Wallet validates the Credential Issuer\n• 13.10 (MUST)  a stored Bearer access token is kept secure
+note right of DW #wheat:[SPEC] DW Core is the fully trusted server part of the wallet , it holds the pre-authorized_code and the access token (stored encrypted , not logged , not sent to the app)\nand makes every protocol call , the app signs and checks , the issuer trust check stays on the app
+note right of DW #wheat:[SPEC] URLs from an offer or a QR are called only over https and never to internal addresses
 
-note right of Core #wheat:[SPEC] Protocol endpoints (/ssi , /.well-known) carry no Consumer-Key\noffer , token , credential , notification write VCVPAuditLog (Actor Channel = WALLET , no caller OrgCode)\nissuer metadata , authorization server metadata , nonce , DID document , vct type metadata are public reads\nrecorded only in the access log , not in VCVPAuditLog
+DW->DW: Parse OfferUrl to get credential_offer_uri
 
-Mini->Core: Read offer from credential_offer_uri | GET /ssi/openid4vci/final-1.0/{credentialSchemaId}/offer/{credentialId}\n(URL = credential_offer_uri in OfferUrl , {credentialSchemaId} and {credentialId} are engine ids inside it)
-Core->Engine: Read offer from credential_offer_uri | GET /ssi/openid4vci/final-1.0/{credentialSchemaId}/offer/{credentialId} (VCVP Core 11)
-Engine-->Core: credential_issuer , credential_configuration_ids , grants.pre-authorized_code
-Core->Core: [DATA STORE] Store pre-authorized_code (= engine interaction id) in Documents table EngineRefs[].RefInteractionId\n(document found by {credentialId} in the offer path = EngineRefs[].RefDocumentId)
-Core->Core: [AUDIT LOG] Write audit record of /ssi offer (EngineCalls , Correlation.DocumentId)
-Mini<--Core: credential offer | credential_issuer , credential_configuration_ids , grants.pre-authorized_code
-Mini->Mini: Keep pre-authorized_code (for token request in section 8)\nKeep credential_issuer (for issuer metadata URL , proof aud , trust check)\nKeep credential_configuration_ids (for credential type)\nBuild issuer metadata URL = /.well-known/openid-credential-issuer + path of credential_issuer
+note right of Core #wheat:[SPEC] Protocol endpoints (/ssi , /.well-known) carry no Consumer-Key\noffer , token , credential , notification write VCVPAuditLog (Actor Channel = WALLET , no caller OrgCode)\nissuer metadata , authorization server metadata , nonce , DID document , vct type metadata are public reads\nalso written to VCVPAuditLog (no Actor)
 
-note right of Core #wheat:[SPEC] Values declared in metadata\nformat = dc+sd-jwt\ncryptographic_binding_methods_supported = [ jwk , did:web , did:tdw , did:key , did:ion , did:jwk ]\njwk is listed , so the holder can bind with a raw public key without a DID\ncredential_signing_alg_values_supported = [ ES256 , EdDSA , ML-DSA-65 ]\nproof_types_supported.jwt supports ES256
-Mini->Core: Read issuer metadata from credential_issuer | GET /.well-known/openid-credential-issuer/ssi/openid4vci/final-1.0/{protocolId}/{identifierId}/{credentialSchemaId}\n(URL = /.well-known/openid-credential-issuer + path of credential_issuer from the offer , {protocolId} = OPENID4VCI_FINAL1 , {identifierId} = engine id of the issuer identifier , {credentialSchemaId})
-Core->Engine: Read issuer metadata from credential_issuer |\nGET /.well-known/openid-credential-issuer/ssi/openid4vci/final-1.0/{protocolId}/{identifierId}/{credentialSchemaId} (VCVP Core 12)
-Engine-->Core: credential_endpoint , nonce_endpoint , notification_endpoint,credential_configurations_supported
-Mini<--Core: issuer metadata | credential_endpoint , nonce_endpoint , notification_endpoint,credential_configurations_supported
-note right of Mini #wheat:[SPEC] OpenID4VCI 1.0 section 12.2.4 : credential_issuer in metadata MUST be identical to the identifier\nused to build the metadata URL , otherwise the metadata MUST NOT be used
-Mini->Mini: Check credential_issuer in metadata = credential_issuer from offer\n(simple string comparison)
-alt credential_issuer in metadata does not match
-    Mini->DW: Report issuance result + Token | POST /v1/virtualcards/issuance_result (DW endpoint 06)\n(issuanceSessionId from response of 1.2 , result = FAILED , reason = ISSUER_METADATA_INVALID)
-    DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , card/document not added)
-    Mini<--DW: Error (response of issuance_result) | reason = ISSUER_METADATA_INVALID
-    Mini-->User: Show error , card/document not added (reason)
-    note over User,Mini #wheat: Issuance stops here , card/document not added , the offer expires by itself , sections 7.1 to 11 do not apply
-else Metadata valid
-    Mini->Mini: Continue
-end
-note right of Mini #wheat:[SPEC] OpenID4VCI 1.0 section 12.2.4 (credential_metadata) : for SD-JWT VC , type metadata of the vct is preferred for display , credential_metadata is the fallback\nEngine vct type metadata uses key instead of technicalKey and lang instead of locale , so the preview uses credential_metadata
-Mini->Mini: Keep nonce_endpoint , credential_endpoint , notification_endpoint (for section 8 , 9)\nKeep proof types , signing alg , binding method (for proof JWT in section 8.1)\nKeep issuer display (name , logo) and credential display (name , logo) (for preview)\nKeep claims display (path , display name , mandatory) from credential_configurations_supported.{id}.credential_metadata (for preview)\nAuthorization server = authorization_servers if declared , otherwise credential_issuer
+DW->Core: Read offer from credential_offer_uri | GET /ssi/openid4vci/final-1.0/{credentialSchemaId}/offer/{credentialId} (VCVP Core 11)\n(URL = credential_offer_uri in OfferUrl , {credentialSchemaId} and {credentialId} are engine ids inside it)
+Core->Engine: Read offer from credential_offer_uri | GET /ssi/openid4vci/final-1.0/{credentialSchemaId}/offer/{credentialId}
+Engine-->Core: credential_issuer , credential_configuration_ids , grants.pre-authorized_code , grants.tx_code (when required)
+Core->Core: [DATA STORE] Keep the engine interaction id (its value is the pre-authorized_code) in Credentials.EngineRefs[].RefInteractionId\nused only to find the credential from the access token later (sections 8.3 , 9 , 9.3) | credential found by {credentialId} in the offer path = EngineRefs[].RefCredentialId
+Core->Core: [AUDIT LOG] Write audit record of VCVP Core 11 : the wallet read the offer of this credential (EngineCalls , Correlation.CredentialId)
+DW<--Core: credential offer | credential_issuer , credential_configuration_ids , grants.pre-authorized_code , grants.tx_code (when required)
+note right of DW #wheat:[SPEC] kept from the offer : pre-authorized_code (token request in section 8 , never sent to the app) , credential_issuer (issuer metadata URL , proof aud , trust check)\ncredential_configuration_ids (credential type) , grants.tx_code (input_mode , length , description) when present\nissuer metadata URL = /.well-known/openid-credential-issuer + path of credential_issuer
+DW->DW: Keep the offer values and build the issuer metadata URL
 
-note right of Core #wheat:[SPEC] Access token is a Bearer token , the wallet does not send DPoP\n(metadata lists dpop_signing_alg_values_supported but the engine does not check it)
-Mini->Core: Get authorization server metadata from authorization server | GET /.well-known/oauth-authorization-server/ssi/openid4vci/final-1.0/{protocolId}/{identifierId}/{credentialSchemaId}\n(URL = /.well-known/oauth-authorization-server + path of credential_issuer , the metadata declares no authorization_servers)
-Core->Engine: Get authorization server metadata from authorization server |\nGET /.well-known/oauth-authorization-server/ssi/openid4vci/final-1.0/{protocolId}/{identifierId}/{credentialSchemaId} (VCVP Core 13)
+DW->Core: Read issuer metadata from credential_issuer | GET /.well-known/openid-credential-issuer/ssi/openid4vci/final-1.0/{protocolId}/{identifierId}/{credentialSchemaId} (VCVP Core 12)\n(URL = /.well-known/openid-credential-issuer + path of credential_issuer from the offer , {protocolId} = OPENID4VCI_FINAL1 , {identifierId} = engine id of the issuer identifier , {credentialSchemaId})
+Core->Engine: Read issuer metadata from credential_issuer |\nGET /.well-known/openid-credential-issuer/ssi/openid4vci/final-1.0/{protocolId}/{identifierId}/{credentialSchemaId}
+Engine-->Core: credential_endpoint , nonce_endpoint , notification_endpoint , credential_configurations_supported
+DW<--Core: issuer metadata | credential_endpoint , nonce_endpoint , notification_endpoint , credential_configurations_supported , credential_request_encryption , credential_response_encryption
+
+DW->Core: Get authorization server metadata from authorization server | GET /.well-known/oauth-authorization-server/ssi/openid4vci/final-1.0/{protocolId}/{identifierId}/{credentialSchemaId} (VCVP Core 13)\n(URL = /.well-known/oauth-authorization-server + path of credential_issuer , the metadata declares no authorization_servers)
+Core->Engine: Get authorization server metadata from authorization server |\nGET /.well-known/oauth-authorization-server/ssi/openid4vci/final-1.0/{protocolId}/{identifierId}/{credentialSchemaId}
 Engine-->Core: token_endpoint\ngrant_types_supported = [ pre-authorized_code , refresh_token ]
-Mini<--Core: authorization server metadata | token_endpoint
-Mini->Mini: Keep token_endpoint (for token request in section 8)
-
-note over Mini #violet: 7.1 Wallet Reads Issuer Trust Result
-note right of Mini #wheat:[SPEC] issuerTrust is the result of the issuing side check (VCVP Core , section 5) , not a check by the wallet\ncredential_issuer in the offer is an engine URL , it is not an identifier listed in the Trust Registry\nThe wallet checks the issuer DID (iss) against the Trust Registry in section 9\n(OpenID4VCI 1.0 section 13.5 : the Wallet MUST perform validation checks on the Credential Issuer)
-Mini->Mini: Read issuerTrust from response of 1.2\n(result of the VCVP Core trust check in section 5)
+DW<--Core: authorization server metadata | token_endpoint
+DW->DW: Keep token_endpoint , credential_endpoint , nonce_endpoint , notification_endpoint (for sections 8 and 9)
+note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 12.2.4 (MUST , MUST NOT)  credential_issuer in metadata equals the identifier of the metadata URL\nThai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.1.3 (MUST)  the offered configuration is in credential_configurations_supported
+DW->DW: Check credential_issuer in metadata = credential_issuer from offer (simple string comparison)\nCheck credential_configuration_ids from the offer are in credential_configurations_supported
+alt credential_issuer does not match / credential configuration not supported
+    DW->DW: Update issuance request status = ISSUANCE_FAILED (reason = ISSUER_METADATA_INVALID)\n(no nonce is requested , VC not issued , credential not added)
+    Mini<--DW: Error (response of 1.2) | reason = ISSUER_METADATA_INVALID
+    Mini-->User: Show error , credential not added (reason)
+    note over User,Mini #wheat: Issuance stops here , credential not added , the offer expires by itself
+else Metadata valid
+    DW->DW: Continue
+end
+note right of DW #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.4.3 (MUST)  TC-3 first round , the wallet checks the issuer\n• 9.10 (MUST)  reject at once when the local Trusted List check fails\n• appendix 8.1 D.1.4 (MUST)  check the issuer before authentication , stop at once on failure\nOpenID4VCI 1.0\n• 13.5 (MUST)  the Wallet validates the Credential Issuer
+note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : D.1.4 says the wallet checks the issuer with the Trusted List "on the device"\nquestion : may DW Core (the server part of the wallet) check instead of the app
+note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : no field yet for the credential_issuer URL , issuer scope and status (12.1.4) , D.1.4 (MUST) rejects when the scope is unknown\nquestion : which fields will list them
+DW->DW: Look up the issuer of credential_issuer in the cached Issuer Trusted List (iss.txt , ETDA Trusted List Load)\norganisation and service status = active , validity period current , credential type in the issuer scope
+alt Issuer not in the Trusted List / not active / credential type not in scope
+    DW->DW: Update issuance request status = ISSUANCE_FAILED (reason = ISSUER_NOT_TRUSTED)\n(no nonce is requested , VC not issued , credential not added)
+    Mini<--DW: Error (response of 1.2) | reason = ISSUER_NOT_TRUSTED
+    Mini-->User: Show error , credential not added (reason)
+    note over User,Mini #wheat: Issuance stops here , credential not added , the offer expires by itself
+else Issuer trusted
+    DW->DW: [DATA STORE] Keep the issuer check in the issuance request (result = TRUSTED , checkedAt , Trusted List version)
+end
+note right of Engine #wheat:[ENGINE RULE] c_nonce is valid 300 seconds and is not bound to the offer\nthe pre-authorized_code is valid 300 seconds (preAuthorizedCodeExpiresInSeconds)
+note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 7 (MUST)  nonce endpoint\n• 13.8  a nonce is used until it is rejected
+note right of DW #wheat:[SPEC] one nonce for every proof of the same request
+DW->Core: Request nonce | POST nonce_endpoint (from issuer metadata) = /ssi/openid4vci/final-1.0/{protocolId}/nonce (VCVP Core 15)
+Core->Engine: Request nonce | POST /ssi/openid4vci/final-1.0/{protocolId}/nonce
+Engine-->Core: c_nonce
+DW<--Core: c_nonce
+DW->DW: [DATA STORE] Keep in the issuance request : pre-authorized_code , c_nonce , OfferExpiresAt , endpoints (stored encrypted , not logged)
+note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 12.2.4  credential_metadata , vct type metadata is preferred for display
+note right of DW #wheat:[ENGINE RULE] the engine type metadata uses key instead of technicalKey and lang instead of locale , so the preview uses credential_metadata
+DW->DW: Prepare the preview data : issuer name from the Issuer Trusted List , credential display and claims display (path , display name , mandatory)\nfrom credential_configurations_supported.{id}.credential_metadata , proof types and signing alg
+note right of DW #wheat:[SPEC] response of 1.2 : issuanceSessionId , credential_issuer , c_nonce , preview data (issuer name , credential display , claims display , proof types , signing alg)\nissuerCheck (result = TRUSTED , checkedAt , Trusted List version = sequence / ETag of iss.txt) from the DW Core check in section 7\ntx_code requirement when the offer has one (input_mode , length , description , no code value)\nno pre-authorized_code and no Trusted List , DW Core made the checks
+Mini<--DW: 200 (response of 1.2) | issuanceSessionId , c_nonce , preview data , issuerCheck , tx_code requirement
+Mini->Mini: Keep proof types and signing alg (for proof JWT in section 8.1) , preview data (for 7.2) , c_nonce (for section 8)
 
 note over User,Mini #lightblue: 7.2 User Reviews Credential
-Mini-->User: Show preview\nissuer (issuer display from metadata) , credential type (credential display from metadata)\nlist of data in the credential (claims display names from metadata , no values)\nissuer trust result (issuerTrust from response of 1.2)
+note right of Mini #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• chapter 14 SC-08 (informative)  names on the consent screen come from the Trusted List
+note right of Mini #wheat:[STANDARD] EUDI ARF annex 2.02\n• ISSU_11 (SHALL)  the wallet tells the user who the issuer is before storing
+note right of Mini #wheat:[SPEC] preview : issuer name from the Issuer Trusted List , credential type (credential display from metadata)\nlist of data in the credential (claims display names from metadata , no values) , issuer status from issuerCheck (trusted by ETDA , checked at)
+Mini-->User: Show preview
 
 alt Holder accepts credential
     User->Mini: Accept
+    opt Offer requires tx_code (credential type with RequiredLoA IAL2.1 or higher)
+        note right of Mini #wheat:[CONDITION] only for credential types with RequiredLoA IAL2.1 or higher (schema with transactionCode NUMERIC , 6 digits) , IAL1 types skip the tx_code steps
+        note right of Mini #wheat:[STANDARD] OpenID4VCI 1.0\n• 4.1.1 (RECOMMENDED)  show the tx_code description next to the input
+        Mini-->User: Ask for the code sent by DW Core (second channel)\nlength and description from tx_code
+        User->Mini: Enter tx_code
+    end
 
     note over CoreApp,HSM #orange: 8. Issue Credential
 
-    Mini->Core: Request access token with pre-authorized_code (from offer) |\nPOST token_endpoint (from authorization server metadata) = /ssi/openid4vci/final-1.0/{credentialSchemaId}/token
-    Core->Engine: Request access token with pre-authorized_code (from offer) | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/token (VCVP Core 14)\npre-authorized code
+    Mini->CoreApp: Sign the proofs for the token request (c_nonce from response of 1.2 , credential_issuer)
+    note right of CoreApp #wheat:[SPEC] Client Attestation PoP : aud = credential_issuer
+    CoreApp->CoreApp: Sign the Client Attestation PoP with the instance key
+    CoreApp->CoreApp: Sign the wallet attestation request proof (new WIA) with the instance key
+    note right of CoreApp #wheat:[STANDARD] OpenID4VCI 1.0\n• Appendix F.1 (MUST)  the key attestation nonce is the c_nonce
+    note right of CoreApp #wheat:[SPEC] a key attestation is requested for every credential request
+    note right of CoreApp #wheat:[SPEC] key attestation request proof : nonce = c_nonce (from response of 1.2)
+    CoreApp->CoreApp: Sign the key attestation request proof with the holder key
+    note right of CoreApp #wheat:[CONDITION] only for credential types with RequiredLoA IAL2.3 or higher (schema RequireDpop = true)
+    note right of CoreApp #wheat:[SPEC] the DPoP key is created in the TEE once , DPoP proof : htm POST , htu = token endpoint , jti , iat
+    CoreApp->CoreApp: Sign a DPoP proof with the DPoP key
+    CoreApp-->Mini: Client Attestation PoP + wallet attestation request proof + key attestation request proof + DPoP proof (when required)
+    Mini->DW: Request a new WIA , the key attestation and the access token + Token | POST /dw/v1/issuance/token (DW endpoint 05)\n(issuanceSessionId , wallet attestation request proof , Client Attestation PoP , key attestation request proof , DPoP proof when required , tx_code when required)
+    DW->DW: Check OfferExpiresAt , when it has passed renew the offer first (same steps as the expired branch below)
+note right of DW #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 10.5.1 (SHOULD)  WUA once-only or in a batch\n• 10.5.2 (MUST)  client_status and key_storage_status use Token Status Lists of the wallet provider\nOpenID4VCI 1.0\n• Appendix F.1 (MUST)  key attestation nonce = c_nonce
+    DW->DW: As the wallet provider : verify the request proofs (instance key for the WIA , registered holder key and c_nonce for the key attestation) , wallet unit status = ACTIVE
+    alt Wallet unit not active / request proof invalid
+        DW->DW: Update issuance request status = ISSUANCE_FAILED (reason = WALLET_ATTESTATION_FAILED)\n(VC not issued , credential not added)
+        Mini<--DW: Error (response of /dw/v1/issuance/token) | reason = WALLET_ATTESTATION_FAILED
+        Mini-->User: Show error , credential not added (reason)
+        note over User,Mini #wheat: Issuance stops here , credential not added , the offer expires by itself
+    else Wallet unit active
+        note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• Appendix D.1 (MUST)  exp present in the key attestation with the jwt proof type\nThai VC ARF 2.0 DRAFT 0\n• 10.5.1 (SHOULD)  short-lived WUA\n• 10.4.2  the Wallet Provider Trusted List carries the certificate that verifies WUA signatures\n• 9.2  no CA certificate is needed , trust comes from the listing in the Trusted List\nEUDI TS3 v1.5.2\n• 2.2.1.2 (SHALL)  the WIA is signed with the key of the certificate in x5c , the certificate validates against the Wallet Provider Trusted List
+        note right of DW #wheat:[SPEC] both signed with the one wallet provider key of DW , header x5c = wallet provider certificate (no iss)\nWIA : valid 300 seconds | cnf , wallet_name , wallet_version , wallet_solution_certification_information , wallet_link , client_status { status , exp }\nKA : exp = iat + 300 seconds (the same as c_nonce , bound to the c_nonce of one request) | nonce = c_nonce , attested_keys = holder public key , key_storage , certification , key_storage_status { status , exp }
+        DW->DW: Issue a new WIA and a key attestation for this request
+    end
+    note right of DW #wheat:[SPEC] token request from DW Core\ntoken_endpoint from authorization server metadata\nheaders : OAuth-Client-Attestation = the new WIA , OAuth-Client-Attestation-PoP , DPoP (when required)\nbody : pre-authorized_code + tx_code (when the offer requires it)
+    DW->Core: Request access token with pre-authorized_code (from offer) | POST token_endpoint = /ssi/openid4vci/final-1.0/{credentialSchemaId}/token (VCVP Core 14)
+note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.1.9 (MUST)  check the Wallet Attestation before an access token (TC-2)\n• 12.8 (MUST)  fetch the list when the connection needs the trust decision\n• 10.4.2  the Wallet Provider Trusted List carries the certificate that verifies WUA signatures\nOpenID4VCI 1.0\n• Appendix E (MUST)  the Wallet Attestation is signed by an issuer the Credential Issuer trusts\nEUDI TS3 v1.5.2\n• 2.2.1.2 (SHALL)  WIA signature under the x5c certificate , the certificate validates against the Wallet Provider Trusted List
+note right of Core #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : wp.txt has no field yet for the certificate that signs the WUA (10.4.2)\nquestion : which field holds it
+Core->Core: Check the x5c signing certificate of the WIA against the cached Wallet Provider Trusted List (wp.txt , ETDA Trusted List Load)\nrole , certificate , organisation and service status = active , validity period current
+note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.6 (MUST)  replay protection (nonce , jti)
+note right of Core #wheat:[ENGINE RULE] the engine accepts the same WIA-PoP jti on a second offer
+note right of Core #B3E5FC:[WORKAROUND] VCVP Core keeps the used WIA-PoP jti because the engine accepts the same jti\nremove the jti check and Credentials.WiaPopJti when the engine rejects a WIA-PoP with a used jti
+note right of Core #wheat:[SPEC] where : VCVP Core looks the jti up in its own Credentials table (WiaPopJti , unique index)\nwhen recorded : only after the engine issues the access token (branch Access token issued below) , a rejected request does not record it
+Core->Core: Check the WIA-PoP jti is not recorded as used (Credentials.WiaPopJti , unique index)
+note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 10.5.2 (MUST)  WIA revocation uses the Token Status List of the wallet provider (client_status)\n• appendix 8.1 D.1.9 (MUST)  wallet instance status checked before an access token
+note right of Core #B3E5FC:[WORKAROUND] VCVP Core checks client_status because the engine does not for these schemas (the WIA of a revoked wallet unit gets a token)\nremove this step when the engine checks client_status
+note right of Core #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : wp.txt has no field yet for where the WUA status list is published (10.4.2)\nquestion : which field holds it
+Core->DW: Get the WIA status list | GET client_status.status_list.uri (DW endpoint 16 , Token Status List of DW Core)
+DW-->Core: Status List JWT (statuslist+jwt)
+Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet provider key , typ , sub , exp , cached up to ttl and at most 1 hour
+    alt Wallet provider not in the Trusted List / not active / WIA-PoP jti used before / WIA revoked
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 14 (FailureReason = WALLET_ATTESTATION_FAILED , Correlation.CredentialId)
+        DW<--Core: 401 invalid_client
+        DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , credential not added)
+        Mini<--DW: Error (response of /dw/v1/issuance/token) | reason = WALLET_ATTESTATION_FAILED
+        Mini-->User: Show error , credential not added (reason)
+        note over User,Mini #wheat: Issuance stops here , credential not added , the offer expires by itself
+    else Wallet provider trusted
+        Core->Core: Continue
+    end
+    note right of Core #wheat:[CONDITION] DPoP is used only for credential types with RequiredLoA IAL2.3 or higher (schema RequireDpop = true) , lower types use Bearer
+    note right of Core #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : D.2 says "consider" DPoP at IAL2.3 , D.3 (MUST) requires it\nquestion : is DPoP required from IAL2.3 (follow D.3)
+    note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.3 (MUST)  DPoP jti not used again , from IAL2.3\n• appendix 8.1 D.1.6 (proposal)  random jti per request\nRFC 9449\n• 11.1  a used jti is declined in the accepted time window , keep only a hash
+    note right of Core #B3E5FC:[WORKAROUND] VCVP Core keeps the DPoP proof jti because the engine accepts a used jti\nremove this check and DpopProofJtis table when the engine declines a used DPoP jti
+    note right of Core #B3E5FC:[WORKAROUND] VCVP Core checks that DPoP is present because the engine has no setting to require it (a token request without DPoP gets Bearer)\nremove this check when the engine can require DPoP per schema
+    Core->Core: Check the request has a DPoP header , when CredentialSchemas.RequireDpop = true
+    note right of Core #wheat:[ENGINE RULE] the engine accepts a DPoP proof while iat is within 5 minutes , plus 1 minute leeway (fixed in the engine code)
+    Core->Core: Look up the DPoP proof in DpopProofJtis table (JtiHash , Htu) , when the request has a DPoP header
+    alt DPoP required but missing / DPoP jti used before
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 14 (FailureReason = DPOP_REQUIRED / DPOP_PROOF_REUSED , Correlation.CredentialId)
+        DW<--Core: 400 invalid_dpop_proof
+        DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , credential not added)
+        Mini<--DW: Error (response of /dw/v1/issuance/token) | reason = FailureReason
+        Mini-->User: Show error , credential not added (reason)
+    else DPoP valid or not required
+        note right of Core #wheat:[DATA STORE] DpopProofJtis table\nJtiHash = hash of jti , Htu = htu of the proof\nExpiresAt = now + 360 seconds , deleted by the database when expired
+        Core->Core: [DATA STORE] Store the DPoP proof in DpopProofJtis table , when the request has a DPoP header
+        Core->Core: Continue
+    end
+    note right of Core #wheat:[STANDARD] OpenID4VCI 1.0\n• 13.10 (MUST)  no long-lived access token unless sender-constrained\nThai VC ARF 2.0 DRAFT 0\n• 8.6 (SHOULD)  short-lived access token
+    note right of Engine #wheat:[ENGINE RULE] the access token is valid 300 seconds (tokenExpiresInSeconds) , Bearer or DPoP-bound when a DPoP proof is sent , no refresh_token is returned
+    note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 10.5.1 (SHOULD)  short-lived WUA , revocation is the backup\ndraft-ietf-oauth-attestation-based-client-auth-12\n• 7.1 (MUST)  the client attestation is fresh per local policy
+    note right of Core #wheat:[SPEC] WIA freshness policy = exp checked by the engine , DW Core sets exp = iat + 300 seconds , VCVP Core makes no extra iat check
+    Core->Engine: Request access token with pre-authorized_code (from offer) | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/token\npre-authorized code + tx_code (when required) + OAuth-Client-Attestation , OAuth-Client-Attestation-PoP
+    Engine->Engine: Check both headers are present (OAuth-Client-Attestation , OAuth-Client-Attestation-PoP) , every schema sets requiresWalletInstanceAttestation
+    Engine->Engine: Verify the WIA signature , the PoP signature and the PoP audience
+    Engine->Engine: Check the WIA exp has not passed (60 seconds leeway)
 
-    alt Pre-authorized code expired / invalid
+    alt tx_code wrong (offer requires tx_code)
+        note right of Engine #wheat:[ENGINE RULE] after one wrong code the right code is refused (400 credential_request_denied)\nthe credential state is ERROR and share is refused (400 BR_0002) , a new credential and offer with a new code are needed\na request without the code gets 400 invalid_request and the right code still works after it
+        Engine-->Core: 400 invalid_grant
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 14 (FailureReason = TX_CODE_INVALID , Correlation.CredentialId)
+        DW<--Core: 400 | FailureReason = TX_CODE_INVALID
+        DW->DW: Update issuance request status = ISSUANCE_FAILED (reason = TX_CODE_INVALID)\n(VC not issued , credential not added)
+        Mini<--DW: Error (response of /dw/v1/issuance/token) | reason = TX_CODE_INVALID
+        Mini-->User: Show error : the code is not correct , request the credential again to get a new code
+    else WIA expired (exp passed)
+        Engine-->Core: error (WIA expired)
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 14 (FailureReason = WALLET_ATTESTATION_FAILED , Correlation.CredentialId)
+        DW<--Core: 401 invalid_client
+        DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , credential not added)
+        Mini<--DW: Error (response of /dw/v1/issuance/token) | reason = WALLET_ATTESTATION_FAILED
+        Mini-->User: Show error , credential not added (reason)
+    else Pre-authorized code expired / invalid
         Engine-->Core: error
-        Core->Core: [ERROR AUDIT] Write audit record of /ssi token (FailureReason = PRE_AUTHORIZED_CODE_INVALID , Correlation.DocumentId)
-        Mini<--Core: error (offer expired)
-        Mini->DW: Request new offer + Token | POST /v1/virtualcards/offer_renew (DW endpoint 05)\n(issuanceSessionId from response of 1.2)
-        DW->Core: Request new offer link | POST /vcvp/v1/documents/offer (VCVP Core 09) (DocumentId stored in the DW issuance request)
-        Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET , ActorType = CITIZEN\nwrite access log
-        Core->Core: Look up the document in Documents table (DocumentId)
-        Core->Core: Check permission by caller channel\nWALLET (DW central Consumer-Key) : the agency allows requests from the wallet on the schema of the document (DocumentSchemas.AllowWalletRequest)\nother channels : the document belongs to the caller's organisation (Documents.IssuerOrganizationId)
-        Core->Core: Check document status is PENDING or OFFER_EXPIRED (Documents.Status)
-        alt Document not found
-            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = DOCUMENT_NOT_FOUND)
-            DW<--Core: 404 | FailureReason = DOCUMENT_NOT_FOUND
-        else Caller not allowed
-            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = WALLET_REQUEST_NOT_ALLOWED / CALLER_NOT_AUTHORIZED , Correlation.DocumentId)
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 14 (FailureReason = PRE_AUTHORIZED_CODE_INVALID , Correlation.CredentialId)
+        DW<--Core: error (offer expired)
+        note right of DW #wheat:[ENGINE RULE] c_nonce and the PoP audience (credential_issuer) are not bound to the offer , so the same request continues with a renewed offer
+        note right of DW #wheat:[ENGINE RULE] c_nonce is valid 300 seconds , the c_nonce from response of 1.2 has expired\nthe key attestation needs a new c_nonce , so the app signs the section 8 proofs again
+        DW->DW: Update issuance request status = OFFER_EXPIRED (the offer is renewed at the next request)
+        alt Offer has tx_code
+            Mini<--DW: 409 (response of /dw/v1/issuance/token) | reason = OFFER_EXPIRED
+            Mini-->User: Show "The code has expired" with the button "Send a new code"
+            User->Mini: Tap "Send a new code"
+            Mini->DW: Request a new code | POST /dw/v1/issuance/tx-code (DW endpoint 18)\n(issuanceSessionId)
+        else Offer without tx_code
+            DW->Core: Request a new c_nonce | POST nonce_endpoint (VCVP Core 15)
+            DW<--Core: c_nonce
+            Mini<--DW: 409 (response of /dw/v1/issuance/token) | reason = OFFER_EXPIRED , new c_nonce
+            note right of Mini #wheat:[SPEC] new Client Attestation PoP , key attestation request proof , DPoP proof when required
+            Mini->Mini: Repeat section 8 with the new c_nonce , it calls /dw/v1/issuance/token (DW endpoint 05) again
+        end
+        note right of DW #wheat:[SPEC] next request (DW endpoint 18 , or DW endpoint 05 from the repeated section 8) : DW Core renews the offer first
+        DW->Core: Request new offer link | POST /api/credential/v1/share (VCVP Core 09) (CredentialId stored in the DW issuance request)
+        Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET , ActorType = CITIZEN
+        alt Consumer-Key invalid or missing
+            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = CALLER_NOT_AUTHORIZED , OrgCode and Actor empty)
+            DW<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED
+            DW->DW: Update issuance request status = FailureReason , answer the waiting app request with the error\n(VC not issued , credential not added)
+        else Consumer-Key valid
+            Core->Core: Continue
+        end
+        Core->Core: Look up the credential in Credentials table (CredentialId)
+        alt Credential not found
+            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = CREDENTIAL_NOT_FOUND)
+            DW<--Core: 404 | FailureReason = CREDENTIAL_NOT_FOUND
+            DW->DW: Update issuance request status = FailureReason , answer the waiting app request with the error\n(VC not issued , credential not added)
+        else Credential found
+            Core->Core: Continue
+        end
+        note right of Core #wheat:[SPEC] WALLET (DW central Consumer-Key) : the agency allows requests from the wallet on the schema of the credential (CredentialSchemas.AllowWalletRequest)\nother channels : the credential belongs to the caller's organisation (Credentials.IssuerOrganizationId)
+        Core->Core: Check caller authorization
+        alt Caller not authorized
+            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = WALLET_REQUEST_NOT_ALLOWED / CALLER_NOT_AUTHORIZED , Correlation.CredentialId)
             DW<--Core: 403 | FailureReason = WALLET_REQUEST_NOT_ALLOWED / CALLER_NOT_AUTHORIZED
-        else Document status not PENDING / OFFER_EXPIRED
-            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = DOCUMENT_STATE_INVALID , Correlation.DocumentId)
-            DW<--Core: 409 | FailureReason = DOCUMENT_STATE_INVALID
-        else Checks passed
+            DW->DW: Update issuance request status = FailureReason , answer the waiting app request with the error\n(VC not issued , credential not added)
+        else Caller authorized
+            Core->Core: Continue
+        end
+        Core->Core: Check credential status is PENDING or OFFER_EXPIRED (Credentials.Status)
+        alt Credential status not PENDING / OFFER_EXPIRED
+            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = CREDENTIAL_STATE_INVALID , Correlation.CredentialId)
+            DW<--Core: 409 | FailureReason = CREDENTIAL_STATE_INVALID
+            DW->DW: Update issuance request status = FailureReason , answer the waiting app request with the error\n(VC not issued , credential not added)
+        else Status PENDING / OFFER_EXPIRED
             Core->Core: Continue to renew offer link
         end
-        DW->DW: (on error) Update issuance request status = FailureReason\n(VC not issued , card/document not added)
-        note right of Engine #wheat:[SPEC] Engine allows share again when state is CREATED , PENDING or INTERACTION_EXPIRED\nAfter the token exchange the state is OFFERED , share is refused (400 BR_0002)\nOFFERED does not change when the offer expires , the holder can still get the credential with its access token\nIn OFFERED state a new credential must be created (section 5 and 6)
-        Core->Engine: Get credential state | GET /api/credential/v1/{CREDENTIAL_ID} (VCVP Core 09) (CREDENTIAL_ID from Documents table EngineRefs[].RefDocumentId)
-        Engine-->Core: state
-
-        alt State CREATED / PENDING / INTERACTION_EXPIRED
-            Core->Engine: Create offer link | POST /api/credential/v1/{CREDENTIAL_ID}/share (VCVP Core 09)\n(CREDENTIAL_ID from Documents table EngineRefs[].RefDocumentId)
-            Engine-->Core: url = openid-credential-offer://?credential_offer_uri=...\nexpiresAt
-            Core->Core: [DATA STORE] Store new offer in Documents table (OfferUrl , OfferExpiresAt , Status = PENDING)
-            Core->Core: [AUDIT LOG] Write audit record of VCVP Core 09 (renew , EngineCalls , Correlation.DocumentId)
-            DW<--Core: 200 | DocumentId + OfferUrl + ExpiresAt
-        else State OFFERED
-            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = OFFER_NOT_RENEWABLE , EngineCalls , Correlation.DocumentId)
+        note right of Engine #wheat:[ENGINE RULE] share works only when the state is CREATED , PENDING or INTERACTION_EXPIRED , other states get 400 BR_0002\n(OFFERED after the token exchange , ERROR after a wrong tx_code) | OFFERED does not change when the offer expires , the holder can still get the credential with its access token
+        Core->Engine: Create offer link | POST /api/credential/v1/{ENGINE_CREDENTIAL_ID}/share\n(ENGINE_CREDENTIAL_ID = Credentials.EngineRefs[].RefCredentialId)
+        alt Offer link created
+            Engine-->Core: url = openid-credential-offer://?credential_offer_uri=...\nexpiresAt , transactionCode (only when the schema has transactionCode)
+            Core->Core: [DATA STORE] Update the same credential in Credentials table : replace OfferUrl and OfferExpiresAt with the new offer , Status = PENDING
+            Core->Core: [AUDIT LOG] Write audit record of VCVP Core 09 : a new offer link was created for the credential (renew , EngineCalls , Correlation.CredentialId)
+            DW<--Core: 200 | CredentialId + OfferUrl + ExpiresAt + TransactionCode (only when the schema has transactionCode)
+            opt Response has TransactionCode (credential type with RequiredLoA IAL2.1 or higher)
+                note right of DW #FFCDD2:[PENDING] waiting for the DW team\nissue : how the tx_code reaches the user is not decided (OpenID4VCI 3.5 : not the offer channel)\nquestion : which channels (SMS , e-mail) , where the verified contact comes from , what if the user has none
+                note right of DW #wheat:[SPEC] the code is not logged and not stored after it is sent , the message says the new code replaces the previous one
+                DW-->User: Send tx_code to the verified contact of the user (second channel)
+            end
+        else State not CREATED / PENDING / INTERACTION_EXPIRED
+            Engine-->Core: 400 BR_0002
+            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = OFFER_NOT_RENEWABLE , EngineCalls , Correlation.CredentialId)
             DW<--Core: 409 | FailureReason = OFFER_NOT_RENEWABLE
-            DW->DW: Repeat section 5 and 6 (VCVP Core 08)\nto create a new document and offer
+            DW->DW: Repeat part 1 sections 5 and 6 (VCVP Core 08)\nto create a new credential and offer
         end
-
-        DW->DW: [DATA STORE] Store new DocumentId + OfferUrl + ExpiresAt in DW database (issuance request)\n+ new IssuerTrust when section 5 and 6 ran again (state OFFERED)
-        Mini<--DW: 200 (response of offer_renew) | new OfferUrl + ExpiresAt
-        Mini->Mini: Repeat section 7 with the new OfferUrl
-        Mini->Mini: Repeat section 8 from the access token request
+        
+        DW->DW: [DATA STORE] Store new CredentialId + OfferUrl + ExpiresAt in DW database (issuance request)
+        DW->Core: Read the new offer | GET credential_offer_uri (VCVP Core 11)
+        DW<--Core: credential offer , keep the new pre-authorized_code
+        alt Offer has tx_code
+            DW->Core: Request a new c_nonce | POST nonce_endpoint (VCVP Core 15)
+            DW<--Core: c_nonce
+            Mini<--DW: 200 (response of /dw/v1/issuance/tx-code) | new code sent , tx_code requirement (input_mode , length , description) , new c_nonce
+            Mini-->User: Ask for the new code sent by DW Core (second channel) , the previous code no longer works
+            User->Mini: Enter the new tx_code
+            note right of Mini #wheat:[SPEC] new Client Attestation PoP , key attestation request proof , DPoP proof when required
+            Mini->Mini: Repeat section 8 with the new code and the new c_nonce
+        else Offer without tx_code
+            DW->DW: Continue the repeated section 8 request with the new pre-authorized_code\n(issue the new WIA and key attestation , request the access token)
+        end
     else Access token issued
         Engine->Engine: State PENDING → OFFERED
         Engine-->Core: access token
-        Core->Core: [AUDIT LOG] Write audit record of /ssi token (Correlation.DocumentId)
-        Mini<--Core: access token
+        Core->Core: Convert expires_in to seconds (RFC 6749 section 5.1)\nthe engine returns a Unix timestamp
+        note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 10.5.2 (MUST)  the issuer revokes the credentials bound to a revoked WIA or key attestation , follows their status (e.g. daily)
+        note right of Core #wheat:[SPEC] used by the daily job in the Revoke-Suspend-Reactivate sequence
+        Core->Core: [DATA STORE] Store the WIA-PoP jti (WiaPopJti) as used and the WIA status reference (WalletAttestationStatus : client_status uri , idx) in Credentials table
+        Core->Core: [AUDIT LOG] Write audit record of VCVP Core 14 : an access token was issued to a trusted wallet unit (Correlation.CredentialId)
+        DW<--Core: access token
     end
 
-    note right of Core #wheat:[SPEC] OpenID for Verifiable Credential Issuance 1.0 (OpenID4VCI 1.0 Final , Sep 2025) section 7 Nonce Endpoint\nThe engine has only OpenID4VCI 1.0 Final installed (protocol OPENID4VCI_FINAL1) , so there is no choice to make here\nNonce is fetched once and used for every proof in the same batch
-    Mini->Core: Request nonce | POST nonce_endpoint (from issuer metadata) = /ssi/openid4vci/final-1.0/{protocolId}/nonce
-    Core->Engine: Request nonce | POST /ssi/openid4vci/final-1.0/{protocolId}/nonce (VCVP Core 15)
-    Engine-->Core: c_nonce
-    Mini<--Core: c_nonce
+    DW->DW: [DATA STORE] Keep the access token in the issuance request (stored encrypted , not logged , not sent to the app)
+    Mini<--DW: 200 (response of /dw/v1/issuance/token) | key attestation (no access token) , ath = base64url(SHA-256 of the access token) when DPoP is required (the token stays at DW Core)
 
     note over CoreApp #f4cccc: 8.1 Holder Proof of Possession (signing point 1)
 
-    Mini->CoreApp: Build and sign proof JWT (c_nonce , credential_issuer from the offer as aud)
-    note right of CoreApp #wheat:[ENGINE RULE] proof header must contain exactly one of kid or jwk\nnot both and not neither\nThe schema sets KeyStorageSecurity , so the header is kid = index of the key in the key attestation ("0") + key_attestation (WUA) , without jwk\nthe engine then takes the holder public key from the attestation\niss must be omitted because a pre-authorized code is used (OpenID4VCI)\nNormally one signature , with batch enabled one proof per key , all sent together
-    CoreApp->CoreApp: Load key attestation (WUA) of the holder key (from section 1.2)
-    note right of CoreApp #wheat:[SPEC] No wallet unit or key attestation on this device : register and activate the wallet unit as in section 1.2 first
-    alt Key attestation expired (valid 31 days)
-        CoreApp->Core: Request key attestation | POST /ssi/wallet-unit/v1/{id}/issue-attestation\n(wua : proof signed with the holder key , security_level)
-        Core->Engine: Request key attestation | POST /ssi/wallet-unit/v1/{id}/issue-attestation
-        Engine-->Core: WUA (key-attestation+jwt)
-        CoreApp<--Core: WUA
-        CoreApp->CoreApp: [DATA STORE] Store new WUA with the holder key
-    else Key attestation valid
-        CoreApp->CoreApp: Continue
-    end
-    loop Repeat per holder key
-        CoreApp->CoreApp: Load holder private key (created and registered in section 1.2)\nSecure Enclave (iOS) / Android Keystore / StrongBox
-        CoreApp->CoreApp: Build proof JWT and sign with on-device key\ntyp = openid4vci-proof+jwt , alg = ES256\nkid = "0" , key_attestation = WUA (no jwk) , aud = credential_issuer (from offer) , nonce = c_nonce , iat
-    end
-CoreApp-->Mini: proof JWT (one per holder key)
+    Mini->CoreApp: Build and sign proof JWT (c_nonce from response of 1.2 , credential_issuer as aud , key attestation from response of /dw/v1/issuance/token)
+    note right of CoreApp #wheat:[STANDARD] OpenID4VCI 1.0\n• Appendix F.1 (MUST)  nonce = c_nonce when the issuer has a Nonce Endpoint\n• Appendix F.1 (OPTIONAL)  iss , left out\n• 13.8 (RECOMMENDED)  c_nonce against proof replay
+    note right of CoreApp #wheat:[ENGINE RULE] the proof header has exactly one of kid or jwk\nthe schema sets KeyStorageSecurity , so the header is key_attestation + kid = "0" , without jwk\nthe engine reads kid as the position of the holder key in attested_keys of the key attestation (one key , position 0)\nthe engine accepts each c_nonce once
+    CoreApp->CoreApp: Load holder private key (created and registered in section 1.2) , unlocked by user authentication (biometric / PIN)\nSecure Enclave (iOS) / Android Keystore / StrongBox
+    note right of CoreApp #wheat:[SPEC] proof JWT\nheader : typ = openid4vci-proof+jwt , alg = ES256 , kid = "0" (position of the holder key in attested_keys) , key_attestation = key attestation from DW Core (no jwk)\npayload : aud = credential_issuer (from offer) , nonce = c_nonce , iat
+    CoreApp->CoreApp: Build the proof JWT and sign it with the holder key
+    note right of CoreApp #wheat:[CONDITION] only for credential types with RequiredLoA IAL2.3 or higher (DPoP-bound access token)
+    note right of CoreApp #wheat:[SPEC] DPoP proof : htm POST , htu = credential endpoint , jti , iat , ath from the response of /dw/v1/issuance/token
+    CoreApp->CoreApp: Sign a DPoP proof with the DPoP key
+    CoreApp-->Mini: proof JWT + DPoP proof (when required)
+    Mini->DW: Request credential + Token | POST /dw/v1/issuance/credential (DW endpoint 06)\n(issuanceSessionId , proof JWT , DPoP proof when required)
 
-    Mini->Core: Request credential with access token + proof JWT |\nPOST credential_endpoint (from issuer metadata) = /ssi/openid4vci/final-1.0/{credentialSchemaId}/credential\ncredential_configuration_id (from offer) , proofs = { jwt : [ proof JWT ] }
+    note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 8.2 (MAY)  encrypted Credential Response when encryption_required = false\nThai VC ARF 2.0 DRAFT 0\n• 5.3.1  credential_response_encryption is optional
+    note right of DW #wheat:[SPEC] no encryption is asked , DW Core sees the credential but cannot present it (cnf = the key on this device)
+    note right of DW #wheat:[SPEC] credential request from DW Core\ncredential_endpoint from issuer metadata\nbody : credential_configuration_id (from offer) , proofs = { jwt : [ proof JWT ] }\nAuthorization : DPoP {access token} + DPoP header when the token is DPoP-bound , otherwise Bearer {access token}
+    note right of DW #wheat:[STANDARD] RFC 9449\n• 7.1  a DPoP-bound access token uses the DPoP scheme\n• 7.2 (MUST)  a DPoP-bound access token sent as Bearer is rejected
+    DW->Core: Request credential with access token + proof JWT | POST credential_endpoint = /ssi/openid4vci/final-1.0/{credentialSchemaId}/credential (VCVP Core 16)
     note over Core,Engine #orange: 8.2 Verify Holder Proof
-    note right of Core #wheat:[ENGINE RULE] The engine checks the key attestation signature with the key in the attestation header\nit does not check who issued the attestation , an attestation signed by the wallet itself is accepted
-    Core->Core: Check the key attestation in the proof header is signed by a trusted wallet provider\n(wallet provider list kept by VCVP Core)
-    alt Key attestation not signed by a trusted wallet provider
-        Core->Core: [ERROR AUDIT] Write audit record of /ssi credential (FailureReason = KEY_ATTESTATION_FAILED , Correlation.DocumentId)
-        Mini<--Core: Reject with reason (invalid_proof)
-        Mini->DW: Report issuance result + Token | POST /v1/virtualcards/issuance_result (DW endpoint 06)\n(issuanceSessionId from response of 1.2 , result = FAILED , reason = KEY_ATTESTATION_FAILED)
-        DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , card/document not added)
-        Mini<--DW: Error (response of issuance_result) | reason = KEY_ATTESTATION_FAILED
-        Mini-->User: Show error , card/document not added (reason)
-        note over User,Mini #wheat: VC not stored , card/document not added
+    note right of Core #wheat:[ENGINE RULE] The engine checks the key attestation signature with the key in the attestation header\nit does not check who issued the attestation , an attestation signed by the wallet itself is accepted\nthe key attestation must be signed with the same key as the WIA given at the token endpoint (400 BR_0498)
+note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.2 (MUST)  reject holder keys without hardware or secure_enclave key storage\n• 10.5.2  check key_storage_status before issuing\nOpenID4VCI 1.0\n• Appendix D.2  key_storage uses iso_18045 levels
+note right of Core #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : 12.2 asks key_storage_verified = hardware , the key attestation has key_storage with iso_18045 levels instead\nquestion : which iso_18045 level counts as hardware
+note right of Core #B3E5FC:[WORKAROUND] VCVP Core checks the key attestation nonce and exp because the engine does not check the nonce\nremove the nonce and exp checks when the engine checks nonce = c_nonce , the wallet provider check against wp.txt stays
+    note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 10.3.1 (MAY)  key attestation in the proof JOSE header
+    note right of Core #wheat:[STANDARD] EUDI TS3 v1.5.2\n• 2.2.2.2 (SHALL)  the same wallet provider for the WIA and the key attestation
+    note right of Core #wheat:[SPEC] key attestation checks\nx5c signing certificate in wp.txt (checked in section 8)\nnonce = nonce of the proof , exp not passed\nkey_storage contains the level of the schema (KeyStorageSecurity)\nkey_storage_status VALID (Token Status List of the wallet provider)
+    Core->Core: Check the key attestation in the proof header
+note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 10.5.2 (MUST)  the issuer revokes the credentials bound to a revoked WIA or key attestation , follows their status (e.g. daily)
+note right of Core #wheat:[SPEC] used by the daily job in the Revoke-Suspend-Reactivate sequence
+Core->Core: [DATA STORE] Keep the key attestation status reference (key_storage_status uri , idx) in Credentials table (KeyAttestationStatus)
+    alt Key attestation not from a trusted wallet provider / wrong nonce / key not in hardware
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 16 (FailureReason = KEY_ATTESTATION_FAILED , Correlation.CredentialId)
+        DW<--Core: Reject with reason (invalid_proof)
+        DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , credential not added)
+        Mini<--DW: Error (response of /dw/v1/issuance/credential) | reason = KEY_ATTESTATION_FAILED
+        Mini-->User: Show error , credential not added (reason)
+        note over User,Mini #wheat: VC not stored , credential not added
     else Trusted wallet provider
         Core->Core: Continue
     end
-    Core->Engine: Request credential with access token + proof JWT | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/credential (VCVP Core 16)\naccess token + all proof JWTs
+    note right of Core #wheat:[STANDARD] RFC 9449\n• 11.1  a used jti is declined in the accepted time window
+    note right of Core #B3E5FC:[WORKAROUND] VCVP Core keeps the DPoP proof jti because the engine accepts a used jti\nremove this check and DpopProofJtis table when the engine declines a used DPoP jti
+    note right of Core #wheat:[ENGINE RULE] the engine accepts a DPoP proof while iat is within 5 minutes , plus 1 minute leeway (fixed in the engine code)
+    Core->Core: Look up the DPoP proof in DpopProofJtis table (JtiHash , Htu) , when the request has a DPoP header
+    alt DPoP jti used before
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 16 (FailureReason = DPOP_PROOF_REUSED , Correlation.CredentialId)
+        DW<--Core: 400 invalid_dpop_proof
+        DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , credential not added)
+        Mini<--DW: Error (response of /dw/v1/issuance/credential) | reason = DPOP_PROOF_REUSED
+        Mini-->User: Show error , credential not added (reason)
+    else DPoP not used before or not required
+        note right of Core #wheat:[DATA STORE] DpopProofJtis table\nJtiHash = hash of jti , Htu = htu of the proof\nExpiresAt = now + 360 seconds , deleted by the database when expired
+        Core->Core: [DATA STORE] Store the DPoP proof in DpopProofJtis table , when the request has a DPoP header
+        Core->Core: Continue
+    end
+    Core->Engine: Request credential with access token + proof JWT | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/credential
 
     Engine->Engine: Check typ is openid4vci-proof+jwt
     Engine->Engine: Check exactly one of kid or jwk , extract holder public key
     Engine->Engine: Verify proof signature with that public key
     Engine->Engine: Check nonce matches and is unused , and aud is this issuer
-    Engine->Engine: Check key attestation : key_storage contains the level set on the schema (KeyStorageSecurity)\nsignature with the key in the attestation header , not expired , not revoked
+    Engine->Engine: Check the key attestation : key_storage level of the schema (KeyStorageSecurity) , signature , not expired , not revoked
 
-    alt Proof invalid / offer expired / already used
+    alt c_nonce expired (invalid_nonce)
+        Engine-->Core: 400 invalid_nonce
+        DW<--Core: 400 invalid_nonce
+note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 8.3.1.2  invalid_nonce , the wallet gets a new c_nonce (section 7)
+        DW->Core: Request nonce | POST nonce_endpoint = /ssi/openid4vci/final-1.0/{protocolId}/nonce (VCVP Core 15)
+        DW<--Core: c_nonce
+        Mini<--DW: 400 (response of /dw/v1/issuance/credential) | invalid_nonce , new c_nonce
+        note right of Mini #wheat:[SPEC] DW Core keeps the access token , /dw/v1/issuance/token only asks DW Core for a new key attestation
+        Mini->Mini: Repeat section 8 from the key attestation request proof with the new c_nonce
+    else Access token expired (invalid_token , the token lives 300 seconds)
+        Engine-->Core: 400 invalid_token
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 16 (FailureReason = ACCESS_TOKEN_EXPIRED , Correlation.CredentialId)
+        DW<--Core: 400 invalid_token
+        note right of DW #wheat:[ENGINE RULE] the credential is OFFERED in the engine and cannot be offered again\nc_nonce is valid 300 seconds , the c_nonce from response of 1.2 has expired
+        DW->DW: Update issuance request status = OFFER_EXPIRED (a new credential is made at the next request)
+        alt Offer has tx_code
+            Mini<--DW: 409 (response of /dw/v1/issuance/credential) | reason = OFFER_EXPIRED
+            Mini-->User: Show "The code has expired" with the button "Send a new code"
+            User->Mini: Tap "Send a new code"
+            Mini->DW: Request a new code | POST /dw/v1/issuance/tx-code (DW endpoint 18)\n(issuanceSessionId)
+        else Offer without tx_code
+            DW->Core: Request a new c_nonce | POST nonce_endpoint (VCVP Core 15)
+            DW<--Core: c_nonce
+            Mini<--DW: 409 (response of /dw/v1/issuance/credential) | reason = OFFER_EXPIRED , new c_nonce
+            note right of Mini #wheat:[SPEC] new Client Attestation PoP , key attestation request proof , DPoP proof when required
+            Mini->Mini: Repeat section 8 with the new c_nonce , it calls /dw/v1/issuance/token (DW endpoint 05) again
+        end
+        note right of DW #wheat:[SPEC] next request (DW endpoint 18 , or DW endpoint 05 from the repeated section 8) : DW Core closes the old credential and makes a new one
+        note right of DW #wheat:[SPEC] the old credential is replaced by a new one , DW Core closes it\nrequest : old CredentialId , Reason = SUPERSEDED , ReasonDetail = access token expired , replaced by a new credential
+        DW->Core: Close the old credential | POST /api/credential/v1/offer-reject (VCVP Core 20)
+        Core->Core: [DATA STORE] Update the old credential in Credentials table : Status = ISSUANCE_FAILED , Reason = SUPERSEDED , ReasonDetail
+        note right of Core #wheat:[ENGINE RULE] the engine has no cancel state for an OFFERED credential : REVOKED only from ACCEPTED , SUSPENDED or EXPIRING ,\nREJECTED and ERROR only from a wallet notification
+        note right of Core #wheat:[SPEC] VCVP Core does not call the engine , the old credential stays OFFERED (not signed , nobody can get it) , Credentials keeps the real status
+        DW<--Core: 200
+        note right of DW #wheat:[SPEC] the new code goes by the second channel when the offer has tx_code , the message says it replaces the previous one
+        DW->DW: Repeat part 1 sections 5 and 6 (VCVP Core 08) : a new credential and offer (with a new code when the offer has tx_code)
+        DW->Core: Read the new offer | GET credential_offer_uri (VCVP Core 11)
+        DW<--Core: credential offer , keep the new pre-authorized_code
+        alt Offer has tx_code
+            DW->Core: Request a new c_nonce | POST nonce_endpoint (VCVP Core 15)
+            DW<--Core: c_nonce
+            Mini<--DW: 200 (response of /dw/v1/issuance/tx-code) | new code sent , tx_code requirement (input_mode , length , description) , new c_nonce
+            Mini-->User: Ask for the new code sent by DW Core (second channel) , the previous code no longer works
+            User->Mini: Enter the new tx_code
+            note right of Mini #wheat:[SPEC] new Client Attestation PoP , key attestation request proof , DPoP proof when required
+            Mini->Mini: Repeat section 8 with the new code and the new c_nonce
+        else Offer without tx_code
+            DW->DW: Continue the repeated section 8 request with the new pre-authorized_code\n(issue the new WIA and key attestation , request the access token)
+        end
+    else Proof invalid / offer expired / already used
         Engine-->Core: error
         Core->Core: Update status = ISSUANCE_FAILED
-        note right of Core #wheat:[ERROR AUDIT] VCVPAuditLog\nFailureReason = INVALID_PROOF / OFFER_EXPIRED / OFFER_ALREADY_USED / KEY_ATTESTATION_FAILED\nMessageCode , Message (HTTP status of the error)\nEngineCalls[].ErrorCode , EngineCalls[].ErrorMessage (engine error)\nEngineCalls[].RefEntityId (engine credential id)\nCorrelation.DocumentId\nEventTime\nActor (Channel = WALLET)\nCorrelation.RequestId
-        Core->Core: [ERROR AUDIT] Write audit record of /ssi credential\n(FailureReason = INVALID_PROOF / OFFER_EXPIRED / OFFER_ALREADY_USED / KEY_ATTESTATION_FAILED , Correlation.DocumentId)
+        note right of Core #wheat:[ERROR AUDIT] VCVPAuditLog\nFailureReason = INVALID_PROOF / OFFER_EXPIRED / OFFER_ALREADY_USED / KEY_ATTESTATION_FAILED\nMessageCode , Message (HTTP status of the error)\nEngineCalls[].ErrorCode , EngineCalls[].ErrorMessage (engine error)\nEngineCalls[].RefEntityId (engine credential id)\nCorrelation.CredentialId\nEventTime\nActor (Channel = WALLET)\nCorrelation.RequestId
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 16\n(FailureReason = INVALID_PROOF / OFFER_EXPIRED / OFFER_ALREADY_USED / KEY_ATTESTATION_FAILED , Correlation.CredentialId)
 
-        Mini<--Core: Reject with reason
-        Mini->DW: Report issuance result + Token | POST /v1/virtualcards/issuance_result (DW endpoint 06)\n(issuanceSessionId from response of 1.2 , result = FAILED , reason)
-        DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , card/document not added)
-        Mini<--DW: Error (response of issuance_result) | reason = ISSUANCE_FAILED
-        Mini-->User: Show error , card/document not added (reason)
-        note over User,Mini #wheat: VC not stored , card/document not added
+        DW<--Core: Reject with reason
+        DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , credential not added)
+        Mini<--DW: Error (response of /dw/v1/issuance/credential) | reason = ISSUANCE_FAILED
+        Mini-->User: Show error , credential not added (reason)
+        note over User,Mini #wheat: VC not stored , credential not added
     else Proof valid
 
         note over Engine,HSM #f4cccc: 8.3 Issuer Signs the Credential (signing point 2)
 
-        Engine->Engine: Reserve an index in the Token Status List\nget { uri , idx } and embed it as status in the token
+        Engine->Engine: Reserve an index in the Token Status List and embed { uri , idx } as status in the token
         Engine->Engine: Embed holder public key from the proof as cnf
+        note right of Engine #wheat:[ENGINE RULE] the signed credential holds what the wallet checks in section 9\nheader kid = issuer did:web#key | payload iss = issuer did:web , vct , vct#integrity , nbf , exp , status.status_list { uri , idx } , cnf.jwk = holder public key\nno sub and no holder DID (KEY identifier)
+        note right of Engine #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• minimal interoperability reference , revocation and status  every VC expires at validUntil (exp in SD-JWT VC)
+        note right of Engine #wheat:[SPEC] every schema sets a validity , so the engine sets exp
+        note right of Engine #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : 8.4.3 says the verifier reads jti (a unique id of the credential) , D.1.11 for SD-JWT VC does not require it\nquestion : does every SD-JWT VC credential need a jti
+        note right of Engine #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : 5.1 and 5.2 show the issuer id (iss) as https:// , chapters 6 and 8.5 use did:web\nquestion : which form must iss use
         Engine->Engine: Build SD_JWT_VC and compute _sd digests of selectively disclosable claims
 
-        note right of Engine #wheat:[SIGNING POINT 2] Signed token structure\nheader : typ = dc+sd-jwt , alg = ES256\nkid = verificationMethod id of the issuer did:web , format did:web:...#key-{keyId}\npayload : vct , vct#integrity , iss = issuer did:web\niat , nbf , status.status_list = { uri , idx } (Token Status List)\ncnf.jwk = holder public key , raw EC P-256\n_sd = digests , _sd_alg = sha-256\nDisclosures appended with ~ , each is [ salt , technicalKey , value ]\n\nsub is present only when the holder uses a DID identifier\nWith a KEY identifier , as chosen , there is no sub and no holder DID anywhere in the credential\nexp is present only when credential validity is configured , otherwise only iat and nbf
-        note right of Engine #wheat:[SIGNING POINT 2] Required setup , otherwise signing fails\n1. The issuing key must be declared in the DID Document under assertionMethod\nthe engine looks up kid in this relationship , signing fails if not found\n2. The vct URL must be resolvable , by default the engine hosts it at /ssi/vct/v2/{orgId}/{schemaId}/SD_JWT_VC\nif moved to our domain it must still resolve\n3. The Token Status List must be published and resolvable at /ssi/revocation/v1/list/{id}\nthe list is a JWT signed with the same issuer key
+        note right of HSM #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.2 G-01 (MUST)  HSM FIPS Level 3\n• 12.2 (MUST)  key ceremony\n• chapter 14 SC-12 , SC-13 , SC-14 (informative)  HSM certificate , ceremony report , rotation plan
+        note right of HSM #FFCDD2:[PENDING] waiting for ETDA and AWS | Thai VC ARF 2.0 DRAFT 0\nissue : 8.1.2 (MUST) asks EdDSA and ES256 , the AWS KMS HSM certificate (#4884) does not approve EdDSA\nquestion : ETDA : is ES256 enough | AWS : are the HSMs of ap-southeast-7 and production under #4884
         Engine->HSM: Sign SD-JWT (JWS) with issuer signing key (ECDSA / ES256)
         HSM-->Engine: Issuer signature
 
         Engine->Engine: State OFFERED → ACCEPTED
-        Engine-->Core: SD_JWT_VC (signed) + all disclosures + notification_id
-        Core->Core: [DATA STORE] Update Documents : Status = ACTIVE and EngineRefs[].RefNotificationId = notification_id\n(document found by the access token , the part before the dot = engine interaction id = EngineRefs[].RefInteractionId)
+Engine-->Core: Credential Response (application/json) , SD_JWT_VC (signed) + all disclosures + notification_id
+        note right of Core #wheat:[DATA STORE] Credentials table\nStatus = ACTIVE\ncredential found by the access token : the part before the dot = engine interaction id = EngineRefs[].RefInteractionId\nVCVP Core does not keep notification_id , the notification is found by its access token
+        Core->Core: [DATA STORE] Update Credentials table : Status = ACTIVE
 
         note over Core #lightgreen: 8.4 Issuance Audit Log
-        note right of Core #wheat:[AUDIT LOG] VCVPAuditLog\nEventType = DOCUMENT_ACCEPTED\nEngineCalls[].RefEntityId (engine credential id)\nCorrelation.DocumentId\nEventTime\nIntegrity.Hash , Integrity.PrevHash\nno personal data claims in the audit trail
-        Core->Core: [AUDIT LOG] Write audit record of /ssi credential (EngineCalls , Correlation.DocumentId)
+        note right of Core #wheat:[AUDIT LOG] proof that the credential was signed and delivered to the holder key (VCVPAuditLog)\nEventType = CREDENTIAL_ACCEPTED\nEngineCalls[].RefEntityId (engine credential id)\nCorrelation.CredentialId\nEventTime\nIntegrity.Hash , Integrity.PrevHash\nno personal data claims in the audit trail
+        Core->Core: [AUDIT LOG] Write audit record of VCVP Core 16 : the signed credential was delivered to the wallet (EngineCalls , Correlation.CredentialId)
 
-        Mini<--Core: Credential (SD_JWT_VC + all disclosures) + notification_id
-        Mini->Mini: Keep notification_id (for notification in section 9)\nRead iss and kid from the credential (for issuer DID document)\nRead vct from the credential (for vct type metadata)
+DW<--Core: Credential Response (application/json) | credentials[].credential , notification_id
+        DW->DW: Keep notification_id (for the notification in section 9 or 9.3)
+        DW->DW: Read iss , kid , vct and status.status_list.uri from the credential
 
-        note over Mini,CoreApp #lightblue: 9. Wallet Verifies Before Storing
-        note right of Mini #wheat:[SPEC] Goal : the app checks the credential is genuine and usable before saving it\nCheck 1 : the issuer really signed it and nothing was changed (see the note above Verify issuer signature)\nCheck 2 : the issuer is trusted (issuer DID (iss) is listed in the Trust Registry and its accreditation has not expired)\nCheck 3 : the credential is bound to this phone (holder key in the credential (cnf.jwk) = the key on this device)\nCheck 4 : the credential type is the one offered and its description was not changed (vct , vct#integrity)\nAny check fails : tell the engine (credential_failure) and DW (issuance_result FAILED) , the card/document is not added\nAll checks pass : save the credential (9.1 , 9.2) , tell the engine (credential_accepted) and DW (issuance_result ACCEPTED) (9.3)
-        Mini->Mini: Build the DID document URL from the issuer DID (iss , did:web method)\nremove did:web: , replace : with / , decode %3A , add /did.json\nresult : https://{host}/ssi/did-web/v1/{id}/did.json ({id} = last segment of the issuer DID)
-        Mini->Core: Get issuer DID document from the URL built above | GET /ssi/did-web/v1/{id}/did.json
-        Core->Engine: Get issuer DID document | GET /ssi/did-web/v1/{id}/did.json (VCVP Core 17)
+        note over DW,Engine #lightblue: 9. DW Core Verifies the Credential Before Returning It
+        note right of DW #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.1.11  checks before saving (TC-3 , TC-4)\n• 8.4.3 (MUST)  a failed TC-3 step rejects the VC\n• 8.4.4 (MUST)  status checked every time\n• 9.10 (MUST)  local Trusted List check before any network call
+        note right of DW #wheat:[SPEC] DW Core checks the credential before returning it to the app\nCheck 1 : the issuer is in the Trusted List , active , and may issue this type\nCheck 2 : the issuer really signed it and nothing was changed\nCheck 3 : it is within its validity period (nbf , exp)\nCheck 4 : it is not revoked or suspended (Token Status List)\nCheck 5 : the credential type description was not changed (vct#integrity)\nChecks 1 to 4 : appendix 8.1 D.1.11 , 8.4.3 , 8.4.4 | Check 5 : SD-JWT VC draft-19 section 6\nany check fails : credential_failure , not returned to the app | all pass : the app saves it (9.1 , 9.2) , then credential_accepted (9.3)
+        note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : D.1.11 and 8.4.3 say the wallet checks the credential before saving it\nquestion : may DW Core (the server part of the wallet) check instead of the app
+        note right of DW #wheat:[SPEC] Check 1 : organisation and service status = active , vct in the issuer scope , keys listed for the issuer
+        DW->DW: Look up iss in the cached Issuer Trusted List (Check 1)
+        note right of DW #wheat:[SPEC] did:web to URL : remove did:web: , replace : with / , decode %3A , add /did.json\nresult : https://{host}/ssi/did-web/v1/{id}/did.json ({id} = last segment of the issuer DID)
+        DW->DW: Build the DID document URL from the issuer DID (iss , did:web)
+        note right of DW #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.1.2 (MUST)  DIF Universal Resolver supported\n• 8.5 (MUST)  DID resolution after TC-3 Check 1
+        note right of DW #wheat:[SPEC] did:web is resolved directly by DW Core , a custom DID (for example did:ndid) goes through the ETDA Universal Resolver
+        DW->Core: Get issuer DID document | GET /ssi/did-web/v1/{id}/did.json (VCVP Core 17)
+        Core->Engine: Get issuer DID document | GET /ssi/did-web/v1/{id}/did.json
         Engine-->Core: DID document | verificationMethod[] { id , publicKeyJwk }
-        Mini<--Core: DID document | verificationMethod[] { id , publicKeyJwk }
-        Mini->CoreApp: Verify the issuer signature of the credential (Check 1) (credential , issuer DID document)
-        note right of CoreApp #wheat:[SPEC] Goal : prove the credential was signed by the issuer and was not changed\nRequired by RFC 9901 (SD-JWT) section 7.2 , done on the app because only the app receives the full credential\nStep 1 : read from the credential the signing key id (kid) and the issuer (iss)\nStep 2 : check the key belongs to the issuer (the DID before # in kid = iss)\nStep 3 : in the issuer DID document (request above) , find the public key whose id = kid\nStep 4 : check that key is allowed to sign credentials (kid is listed in assertionMethod)\nStep 5 : give the credential and that public key to an SD-JWT library , it checks the signature and every disclosure\nLibrary : eudi-lib-jvm-sdjwt-kt (Android) , eudi-lib-sdjwt-swift (iOS) , sd-jwt-js (JS)\nWith the Procivis wallet SDK , steps 1 to 5 run inside issuance-accept\nAny step fails → Verification failed branch below
-        CoreApp->CoreApp: Verify issuer signature (Check 1)\nusing the public key of the verificationMethod matching kid
-        CoreApp-->Mini: Check 1 result
-        Mini->Trust: Check issuer DID (iss) is listed and accreditation not expired (Check 2) | GET {trust registry URL}
-        Trust-->Mini: Accreditation status
-        Mini->CoreApp: Check the credential is bound to this device (Check 3) (cnf.jwk in the credential)
-        note right of CoreApp #wheat:[SPEC] Why the holder key is checked now (Check 3)\nThe credential works only with the key whose public key is in cnf.jwk\nIf that is not the key on this device , the user can never present this credential to a verifier\n(the app cannot create the key binding proof (Key Binding JWT) that the verifier requires)\nCheck it here before saving , not later when the user presents the credential
-        CoreApp->CoreApp: Check cnf.jwk matches the public key of the key on this device (Check 3)
-        CoreApp-->Mini: Check 3 result
-        Mini->Core: Get credential type description from the vct URL in the credential (vct type metadata) | GET /ssi/vct/v2/{orgId}/{credentialSchemaId}/SD_JWT_VC\n(URL = vct in the credential , {orgId} = engine id of the issuer organisation)
-        Core->Engine: Get credential type description (vct type metadata) | GET /ssi/vct/v2/{orgId}/{credentialSchemaId}/SD_JWT_VC (VCVP Core 18)
+        DW<--Core: DID document
+        note right of DW #wheat:[SPEC] URL = vct in the credential , {orgId} = engine id of the issuer organisation
+        DW->Core: Get credential type description (vct type metadata) | GET /ssi/vct/v2/{orgId}/{credentialSchemaId}/SD_JWT_VC (VCVP Core 18)
+        Core->Engine: Get credential type description (vct type metadata) | GET /ssi/vct/v2/{orgId}/{credentialSchemaId}/SD_JWT_VC
         Engine-->Core: credential type description (vct type metadata)
-        Mini<--Core: credential type description (vct type metadata)
-        Mini->Mini: Check the credential type (Check 4)\nvct in the credential = the credential type that was offered (credential_configuration_id)\nhash of the credential type description just downloaded = vct#integrity in the credential
+        DW<--Core: credential type description (vct type metadata)
+        note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : 12.6 (MUST) checks the validity period of each issuer key , the Trusted List has no per-key period\nquestion : will the Trusted List list each issuer key with its start and end date
+        note right of DW #wheat:[STANDARD] RFC 9901 (SD-JWT)\n• 7.1 , 7.2 (MUST)  verify the issuer signature and every disclosure\nThai VC ARF 2.0 DRAFT 0\n• 12.6 (MUST NOT)  no DID document key instead of the Trusted List key
+        note right of DW #wheat:[SPEC] the DID before # in kid = iss , the key with id = kid is in the issuer DID document under assertionMethod and listed for the issuer in the Trusted List\nthen an SD-JWT library checks the signature and every disclosure\nthe key comes from kid (8.4.3 step 4) and must be listed in the Trusted List (12.6) , not from JWKS (D.1.11 [28])
+        DW->DW: Verify issuer signature (Check 2)
+        note right of DW #wheat:[SPEC] Check 3 : nbf <= now , exp > now when present
+        DW->DW: Check the validity window (Check 3)
+        note right of DW #wheat:[STANDARD] Token Status List draft-21\n• 8.3 (MUST , MUST NOT)  check the token before its status , no status fetch for an invalid token\nThai VC ARF 2.0 DRAFT 0\n• 13.3 (MUST NOT)  no status check when the token check fails
+        note right of DW #wheat:[SPEC] status list request : Accept: application/statuslist+jwt
+        DW->Core: Get the status list | GET status.status_list.uri = /ssi/revocation/v1/list/{id} (VCVP Core 31)
+        Core->Engine: Get the status list | GET /ssi/revocation/v1/list/{id}
+        Engine-->Core: Status List JWT (typ statuslist+jwt)
+        DW<--Core: Status List JWT
+        note right of DW #wheat:[STANDARD] Token Status List draft-21\n• 5.1 (MUST , REQUIRED , RECOMMENDED)  typ , sub , iat , exp , ttl\n• 8.3 (MUST)  check exp when present , reject idx out of range\nThai VC ARF 2.0 DRAFT 0\n• 8.4.4 (MUST)  fail closed
+        note right of DW #wheat:[SPEC] accept only 0x00 (VALID) at idx , cache by ttl
+        note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : 13.2 says the profile fixes one Token Status List revision (draft-18 and draft-21 differ)\nquestion : which revision
+        note right of DW #wheat:[SPEC] Check 4 : signature by the issuer key , sub = status_list.uri , iat , exp when present , value at idx = 0x00 (VALID)
+        DW->DW: Check the status (Check 4)
+        note right of DW #wheat:[STANDARD] SD-JWT VC draft-19\n• 6 (MUST)  verify a retrieved document against its #integrity value
+        note right of DW #wheat:[SPEC] Check 5 : hash of the credential type description downloaded from VCVP Core 18 = vct#integrity in the credential
+        DW->DW: Check the credential type description (Check 5)
 
-        alt Any check fails (Check 1 to 4)
-            note right of Mini #wheat:[SPEC] Failure reason per check (for developers)\nCheck 1 issuer signature invalid : VERIFICATION_FAILED\nCheck 2 issuer not in the Trust Registry or accreditation expired : ISSUER_NOT_TRUSTED\nCheck 3 cnf.jwk is not the key on this device : HOLDER_KEY_MISMATCH\nCheck 4 vct or vct#integrity does not match the offer : CREDENTIAL_TYPE_MISMATCH\nThe reason goes to DW in issuance_result and to VCVP in event_description of the notification (OpenID4VCI 1.0 section 11.1)\nVCVP Core reads event_description before forwarding and stores it in FailureReason , the engine does not keep it
-            Mini->DW: Report issuance result + Token | POST /v1/virtualcards/issuance_result (DW endpoint 06)\n(issuanceSessionId from response of 1.2 , result = FAILED , reason of the failed check (see note) ,\nnotification_id , access token , notification_endpoint)
-            DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , card/document not added)
-            note right of DW #wheat:[SPEC] Same two ways as section 9.3 : the app may notify the engine directly ,\nthis flow sends credential_failure through DW
-            DW->Core: Notify credential_failure with notification_id + access token |\nPOST notification_endpoint (from issuer metadata , passed by the app) = /ssi/openid4vci/final-1.0/{credentialSchemaId}/notification
-            note right of Engine #wheat:[SPEC] OpenID4VCI 1.0 section 11.1 : credential_failure is used for unsuccessful cases not caused by a user action\ncredential_deleted is used only when the user caused it
-            Core->Engine: Notify credential_failure with notification_id + access token |\nPOST /ssi/openid4vci/final-1.0/{credentialSchemaId}/notification (VCVP Core 19)\nevent = credential_failure
+        alt Any check fails (Check 1 to 5)
+            note right of DW #wheat:[SPEC] Failure reason per check (for developers)\nCheck 1 issuer not in the Trusted List , not active or type not in scope : ISSUER_NOT_TRUSTED\nCheck 2 issuer signature invalid or key not listed in the Trusted List : VERIFICATION_FAILED\nCheck 3 outside the validity window : CREDENTIAL_NOT_VALID\nCheck 4 status not VALID or status list invalid : CREDENTIAL_STATUS_INVALID\nCheck 5 the credential type description does not match vct#integrity : CREDENTIAL_TYPE_MISMATCH\nDW Core sends the reason to VCVP Core in event_description of the notification (OpenID4VCI 1.0 section 11.1 , OPTIONAL)\nVCVP Core reads event_description before forwarding and stores it in FailureReason , the engine does not keep it
+            DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , credential not added)
+            note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 11 (MUST)  the notification carries a valid access token
+            note right of DW #wheat:[SPEC] DW Core holds the access token (section 8)
+            note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 11.1  credential_failure for failures not caused by the user , credential_deleted only when the user caused it
+            note right of DW #wheat:[SPEC] notification_endpoint from issuer metadata , kept by DW
+            DW->Core: Notify credential_failure with notification_id + access token | POST notification_endpoint = /ssi/openid4vci/final-1.0/{credentialSchemaId}/notification (VCVP Core 19)
+            Core->Engine: Notify credential_failure with notification_id + access token | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/notification
             Engine->Engine: State ACCEPTED → ERROR
             Engine-->Core: 204
-            Core->Core: [DATA STORE] Documents Status = ISSUANCE_FAILED , WalletNotification (Event = credential_failure , ReceivedAt , FailureReason from event_description)\n(document found by notification_id = EngineRefs[].RefNotificationId)
-            Core->Core: [ERROR AUDIT] Write audit record of /ssi notification (FailureReason = reason from event_description , event = credential_failure , Correlation.DocumentId)
+            note right of Core #wheat:[DATA STORE] Credentials table\nStatus = ISSUANCE_FAILED\nWalletNotification : Event = credential_failure , ReceivedAt , FailureReason from event_description\ncredential found by the access token of the notification request = EngineRefs[].RefInteractionId
+            Core->Core: [DATA STORE] Update Credentials table : Status = ISSUANCE_FAILED , WalletNotification
+            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 19 (FailureReason = reason from event_description , event = credential_failure , Correlation.CredentialId)
             DW<--Core: 204
-            Mini<--DW: Error (response of issuance_result) | reason of the failed check
-            Mini-->User: Show error , card/document not added (reason)
-            note over User,Mini #wheat: VC not stored , card/document not added
+            Mini<--DW: Error (response of /dw/v1/issuance/credential) | reason of the failed check
+            Mini-->User: Show error , credential not added (reason)
+            note over User,Mini #wheat: VC not stored , credential not added
         else Verification passed
+            Mini<--DW: 200 (response of /dw/v1/issuance/credential) | credential (SD_JWT_VC + all disclosures)
 
             note over CoreApp #lightblue: 9.1 Credential Storage Model (on device or cloud)
-            note right of CoreApp #wheat:[PENDING] Two storage modes are kept in the design , one will be removed later\nIn both modes the holder private key stays on the device
+            note right of CoreApp #FFCDD2:[PENDING] waiting for the Mobile App (Core ทางรัฐ) team\nissue : two storage modes are kept in the design\nquestion : which mode stays
             Mini->CoreApp: Store the credential (SD_JWT_VC + all disclosures)
             alt Storage mode = ON_DEVICE
-                note right of CoreApp #wheat:[SPEC] On-device credential model\nThe wallet owns the full token , so it can present offline\nand does not disclose data to backend systems when presenting a VP\nHolder private key remains on device\nBackend does not keep the full VC , only references
+                note right of CoreApp #wheat:[SPEC] ON_DEVICE : the app keeps the full token , can present offline , the backend keeps references only
                 CoreApp->CoreApp: [DATA STORE] Store the full token (SD_JWT_VC + disclosures) in the on-device database
                 note right of CoreApp #wheat:[DATA STORE] on-device database\ncredentialId , credentialType , vct\nissuer DID / issuer display name\nschemaId\nvalidFrom / validUntil\nstatus reference ( uri + idx )\ndisplay metadata
                 CoreApp->CoreApp: [DATA STORE] Store credential metadata in on-device database
@@ -256,10 +521,11 @@ CoreApp-->Mini: proof JWT (one per holder key)
                 CoreApp->CoreApp: Mark credential as available for presentation
 
             else Storage mode = CLOUD (encrypted on the device before upload)
-                note right of CoreApp #wheat:[SPEC] Cloud credential model\nThe token is encrypted on the device , DW stores only ciphertext and metadata\nTo present a VP the app downloads the ciphertext , decrypts it on the device and signs with the on-device key\nPresenting needs a network connection\nHolder private key remains on device
-                note right of CoreApp #wheat:[PENDING] Recovery of the data key when the device is lost or replaced\nWhether credential metadata on DW may be stored in clear
-                CoreApp->CoreApp: Encrypt the full token (SD_JWT_VC + disclosures) on the device\nwith a data key protected by secure hardware (Secure Enclave / Android Keystore)
-                CoreApp->DW: Store encrypted credential + Token | POST /dw/v1/credentials (DW endpoint 08)\n(credentialId , encrypted token , credential metadata)
+                note right of CoreApp #wheat:[SPEC] CLOUD : the token is encrypted on the device , DW keeps ciphertext and metadata , presenting needs a network connection
+                note right of CoreApp #FFCDD2:[PENDING] waiting for the Mobile App (Core ทางรัฐ) team and the DW team\nissue : the data key cannot be recovered when the device is lost , metadata on DW is readable\nquestion : 1. recover the data key or issue again (suggested : issue again , cnf is bound to the old device key)\n2. which metadata fields stay readable (suggested : only what DW needs , for example status reference and expiry , the rest encrypted)
+                note right of CoreApp #wheat:[SPEC] data key protected by secure hardware (Secure Enclave / Android Keystore)
+                CoreApp->CoreApp: Encrypt the full token (SD_JWT_VC + disclosures) on the device
+                CoreApp->DW: Store encrypted credential + Token | POST /dw/v1/credentials (DW endpoint 10)\n(credentialId , encrypted token , credential metadata)
                 note right of DW #wheat:[DATA STORE] DW cloud storage\nCitizenId , deviceId , credentialId\nencrypted token (DW cannot decrypt it)\ncredential metadata : credentialType , vct , issuer DID , validFrom / validUntil , status reference ( uri + idx )
                 DW->DW: [DATA STORE] Store encrypted credential in DW cloud storage
                 CoreApp<--DW: 201 | cloud reference
@@ -270,62 +536,53 @@ CoreApp-->Mini: proof JWT (one per holder key)
             end
 
             note over CoreApp #lightblue: 9.2 Secure Local Storage and Access Policy
-            note right of CoreApp #wheat:[SPEC] Applies to the on-device database in both modes\nIn CLOUD mode it holds credential metadata and the cloud reference , not the full token
-            note right of CoreApp #wheat:[SPEC] Target is OWASP MASVS-STORAGE level L2\nThe library provides only L1 , the gap must be implemented
-            note right of CoreApp #wheat:[SPEC] Secure local storage\nAndroid : EncryptedSharedPreferences / Room encrypted DB\niOS : Keychain
-            CoreApp->CoreApp: Use secure local storage for the on-device database (from 9.1)
-            CoreApp->CoreApp: Encrypt the database with envelope encryption\nKEK in secure hardware protects DEK on disk , DEK encrypts the data files
-            CoreApp->CoreApp: Set file protection so data is unreadable while the screen is locked\nnot only until first unlock after boot
-            CoreApp->CoreApp: Protect credential access with device security\nbiometric / PIN / device unlock
-            CoreApp->CoreApp: Store only the personal data that is necessary\ndo not keep readable claim copies without justification
-            CoreApp->CoreApp: Prevent export of holder private key\nSecure Enclave / Android Keystore / StrongBox
-            CoreApp->CoreApp: Configure usage policy\nrequire holder confirmation before presentation\nrequire holder signing before VP submission
+            note right of CoreApp #wheat:[SPEC] app security baseline (set once in the app , not per credential , both storage modes)\ntarget : OWASP MASVS-STORAGE level L2 (the library provides only L1 , the gap must be implemented)\nsecure local storage : Android EncryptedSharedPreferences / Room encrypted DB , iOS Keychain\nenvelope encryption : KEK in secure hardware protects DEK on disk , DEK encrypts the data files\nfile protection : unreadable while the screen is locked , not only until first unlock after boot\naccess : biometric / PIN / device unlock\npersonal data : no readable claim copies without justification\nholder private key : Secure Enclave / Android Keystore / StrongBox , not exportable\nusage policy : holder confirmation before presentation , holder signing before VP submission
 CoreApp-->Mini: Credential stored | credentialId
 
             note over CoreApp,Engine #lightblue: 9.3 Wallet confirms receipt
-            note right of DW #wheat:[SPEC] Two ways are supported to send credential_accepted\n1. The app calls the notification endpoint directly (from App to VCVP Core , same path)\n2. The app reports to DW and DW sends the notification (used in this flow)\nWay 2 : the app passes notification_id , access token and notification_endpoint to DW\n(OpenID4VCI 1.0 section 11 : the Wallet MUST present a valid access token to the Notification Endpoint)\nDW acts as the server-side component of the Wallet (section 13.4)
-            Mini->DW: Report issuance result + Token | POST /v1/virtualcards/issuance_result (DW endpoint 06)\n(issuanceSessionId from response of 1.2 , result = ACCEPTED , notification_id , access token , notification_endpoint)
+            Mini->DW: Report issuance result + Token | POST /dw/v1/issuance/result (DW endpoint 08)\n(issuanceSessionId from response of 1.2 , result = ACCEPTED)
             DW->DW: Update issuance request status = ACCEPTED
-            DW->Core: Notify credential_accepted with notification_id + access token |\nPOST notification_endpoint (from issuer metadata , passed by the app) = /ssi/openid4vci/final-1.0/{credentialSchemaId}/notification
-            note right of Engine #wheat:[SPEC] The engine sets ACCEPTED when the credential is issued , not on notification\ncredential_accepted does not change state\ncredential_failure → ERROR | credential_deleted → REJECTED\nERROR and REJECTED set the Token Status List entry to INVALID , suspend , reactivate and revoke are refused afterwards (400 BR_0366)
-            Core->Engine: Notify credential_accepted with notification_id + access token |\nPOST /ssi/openid4vci/final-1.0/{credentialSchemaId}/notification (VCVP Core 19)\nevent = credential_accepted
+            note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 11 (MUST)  valid access token at the Notification Endpoint\n• 13.4  DW Core is the server part of the wallet
+            note right of DW #wheat:[SPEC] DW Core sends the notification , the app sends only the result
+            note right of DW #wheat:[SPEC] notification_endpoint from issuer metadata , kept by DW
+            DW->Core: Notify credential_accepted with notification_id + access token | POST notification_endpoint = /ssi/openid4vci/final-1.0/{credentialSchemaId}/notification (VCVP Core 19)
+            note right of Engine #wheat:[ENGINE RULE] the engine sets ACCEPTED when the credential is issued , not on notification\ncredential_accepted does not change state\ncredential_failure → ERROR | credential_deleted → REJECTED\nERROR and REJECTED set the Token Status List entry to INVALID , suspend , reactivate and revoke are refused afterwards (400 BR_0366)
+            Core->Engine: Notify credential_accepted with notification_id + access token | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/notification
             Engine-->Core: 204 (state stays ACCEPTED)
-            Core->Core: [DATA STORE] Store wallet receipt in Documents table : WalletNotification (Event = credential_accepted , ReceivedAt)\n(document found by notification_id = EngineRefs[].RefNotificationId)
-            Core->Core: [AUDIT LOG] Write audit record of /ssi notification (event = credential_accepted , Correlation.DocumentId)
+            note right of Core #wheat:[DATA STORE] Credentials table\nWalletNotification : Event = credential_accepted , ReceivedAt\ncredential found by the access token of the notification request = EngineRefs[].RefInteractionId
+            Core->Core: [DATA STORE] Store the wallet receipt in Credentials table (WalletNotification)
+            Core->Core: [AUDIT LOG] Write audit record of VCVP Core 19 : the wallet confirmed it stored the credential (event = credential_accepted , Correlation.CredentialId)
             DW<--Core: 204
-            DW->DW: Prepare card/document data from applicant data (section 2)
-            Mini<--DW: 200 (response of issuance_result) | digital card/document data
-            Mini->CoreApp: Store card/document data (linked to credentialId)
-            CoreApp->CoreApp: [DATA STORE] Store card/document data in on-device database\nlinked to the stored credentialId
-            CoreApp-->Mini: Card/document data stored
+            Mini<--DW: 200 (response of /dw/v1/issuance/result) | result recorded
 
-            Mini-->User: Show digital card/document with a VC badge\n(card/document data from DW , linked to the stored verifiable credential)
+            Mini-->User: Show the credential with a VC badge (claims from the stored VC)
         end
 
     end
 
 else Holder rejects credential
     User->Mini: Reject
-    Mini->DW: Reject offer + Token | POST /v1/virtualcards/offer_reject (DW endpoint 07)\n(issuanceSessionId from response of 1.2 , reason = HOLDER_REJECTED)
-    DW->Core: Reject credential | POST /vcvp/v1/wallet/offers/reject (VCVP Core 20)
-    Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET , ActorType = CITIZEN\nwrite access log
-    Core->Core: Validate caller authorization
+    Mini->DW: Reject offer + Token | POST /dw/v1/issuance/reject (DW endpoint 09)\n(issuanceSessionId from response of 1.2 , reason = HOLDER_REJECTED)
+    DW->Core: Reject credential | POST /api/credential/v1/offer-reject (VCVP Core 20)
+    note right of Core #wheat:[SPEC] caller channel = WALLET , ActorType = CITIZEN , the credential belongs to the citizen of the request
+    Core->Core: Check Consumer-Key (DW Core central Consumer-Key) and caller authorization
     alt Caller not authorized
-        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 20 (FailureReason = CALLER_NOT_AUTHORIZED , Correlation.DocumentId)
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 20 (FailureReason = CALLER_NOT_AUTHORIZED , OrgCode and Actor empty when the Consumer-Key is invalid)
         DW<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED
         note over DW,Core #wheat: Reject not recorded in VCVP , the offer still expires by itself
     else Caller authorized
 
         note over Core #pink: 11. Handle Holder Reject
-        Core->Core: Update status HOLDER_REJECTED\ndo not call engine , let the offer expire
-        note right of Core #wheat:[AUDIT LOG] VCVPAuditLog\nEventType = DOCUMENT_OFFER_REJECTED\nActor (Channel = WALLET)\nReasonDetail\nCorrelation.DocumentId\nEventTime\nIntegrity.Hash , Integrity.PrevHash
-        Core->Core: [AUDIT LOG] Write audit record of VCVP Core 20 (status = HOLDER_REJECTED , Correlation.DocumentId)
+        note right of Core #wheat:[SPEC] VCVP Core does not call the engine , the offer expires by itself
+        Core->Core: Update status HOLDER_REJECTED
+        note right of Core #wheat:[AUDIT LOG] proof that the holder declined the credential (VCVPAuditLog)\nEventType = CREDENTIAL_OFFER_REJECTED\nActor (Channel = WALLET)\nReasonDetail\nCorrelation.CredentialId\nEventTime\nIntegrity.Hash , Integrity.PrevHash
+        Core->Core: [AUDIT LOG] Write audit record of VCVP Core 20 : the holder declined the credential (status = HOLDER_REJECTED , Correlation.CredentialId)
 
         DW<--Core: 200
     end
     DW->DW: Update issuance request status = HOLDER_REJECTED
     Mini<--DW: Cancel issuance
-    Mini-->User: Credential not issued , card/document not added
+    Mini-->User: Credential not issued , credential not added
 end
 
 

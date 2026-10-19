@@ -12,6 +12,7 @@ participant "<color:#white>ETDA Trusted List (CDN)</color>" as Trust #0B2E6B
 
 
 note over Core,Trust #violet: 0. Load ETDA Trusted List (when a transaction needs it)
+note right of Core #wheat:[CONDITION] before this flow (setup , outside the system) : the issuing agency is registered in iss.txt (DID , keys , credential types)\nand DW Core in wp.txt as wallet provider (certificate for WUA signatures , location of the WUA status lists) | WUA = WIA and key attestation\nThai VC ARF 2.0 DRAFT 0 9.9 (MUST) , 10.4.2
 note right of Core #wheat:[SPEC] steps in the ETDA Trusted List Load sequence (first tab)
 
 note over User,CoreApp #lightblue: 1.1 User Login
@@ -30,7 +31,7 @@ alt Holder key not found on device (first use of Document Wallet on this device)
 note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 13.4 (MUST NOT)  server component of the wallet
 note right of DW #wheat:[SPEC] DW Core is a fully trusted part of the wallet , the app calls only DW Core , attestations and proofs are made on the device
     CoreApp->DW: Register the wallet unit and get a challenge (nonce for the platform attestation and the holder key binding) + Token | POST /dw/v1/holder-keys/challenge (DW endpoint 01)\n(deviceId , provider , role = WALLET , os)
-    note right of DW #FFCDD2:[PENDING] the same user registers a new wallet unit on the same device (app removed and installed again , the old keys are gone from the keystore)\nwhether DW revokes the old wallet unit at once (client_status = 1 , cascade in Revoke-Suspend-Reactivate CASE C) is decided by the DW team\nanother device of the same user is a separate wallet unit and is not revoked
+    note right of DW #FFCDD2:[PENDING] waiting for the DW team\nissue : the user reinstalls the app on the same device , the old keys are gone\nquestion : does DW revoke the old wallet unit at once
     DW->DW: Register the wallet unit (wallet unit id , os) and create the challenge (nonce for the platform attestation and the holder key)
     DW->DW: [DATA STORE] Store the holder key challenge in DW database
     CoreApp<--DW: wallet unit id , challengeId , challenge , expiresAt
@@ -38,9 +39,10 @@ note right of DW #wheat:[SPEC] DW Core is a fully trusted part of the wallet , t
     note right of CoreApp #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.2 (MUST)  holder key in a WSCD\n• chapter 14 SC-20 (informative)  WSCD attestation before issuance
     CoreApp->CoreApp: Generate holder key pair with the DW challenge as attestation challenge (Secure Enclave / Android Keystore / StrongBox)\nAndroid : Key Attestation certificate chain of the holder key | iOS : App Attest assertion over the holder public key and the challenge
     CoreApp->CoreApp: Sign the DW challenge with the holder private key\nSign the wallet attestation request proof with the instance key
-    CoreApp->DW: Activate wallet unit , get the wallet attestation and register the holder key + Token | POST /dw/v1/holder-keys/register (DW endpoint 02)\n(attestation , attestation key proof , device signing key proof , wallet attestation proof , signedChallenge , challengeId , publicKey ,\nholder key attestation : Android certificate chain / iOS App Attest assertion)
+    note right of CoreApp #wheat:[SPEC] request : attestation , attestation key proof , device signing key proof , wallet attestation proof , signedChallenge , challengeId , publicKey\nholder key attestation : Android certificate chain / iOS App Attest assertion
+    CoreApp->DW: Activate wallet unit , get the wallet attestation and register the holder key + Token | POST /dw/v1/holder-keys/register (DW endpoint 02)
     DW->DW: Check app integrity\nAndroid : Google attestation CA , package name , signing certificate , security level | iOS : Apple App Attest root CA , bundleId
-    note right of DW #FFCDD2:[PENDING] Thai VC ARF 2.0 DRAFT 0 12.2 (MUST) : mapping of StrongBox , TEE , Secure Enclave to key_storage not published | accepted types and iOS evidence : wallet team
+    note right of DW #FFCDD2:[PENDING] waiting for ETDA and the wallet team | Thai VC ARF 2.0 DRAFT 0\nissue : 12.2 (MUST) needs hardware key storage , the matching key_storage level is not published\nquestion : which key storage types are accepted (StrongBox , TEE , Secure Enclave) and the iOS evidence
     DW->DW: Verify the platform evidence of the holder key and signedChallenge with publicKey\nAndroid : certificate chain to the Google root , attestationChallenge = challenge , key in StrongBox or TEE | iOS : App Attest assertion over the holder public key and the challenge
     alt App integrity or holder key evidence failed
         DW->DW: Set wallet unit status = ERROR , [ERROR AUDIT] Store DW audit log (FailureReason = DEVICE_ATTESTATION_FAILED)
@@ -51,18 +53,26 @@ note right of DW #wheat:[SPEC] DW Core is a fully trusted part of the wallet , t
     else Evidence valid
         note right of DW #wheat:[STANDARD] EUDI TS3 v1.5.2\n• 2.5.1  large status list , random index\nToken Status List draft-21\n• 12.1 , 12.2  herd privacy\nThai VC ARF 2.0 DRAFT 0\n• 10.5.2  WIA and KA status lists
         note right of DW #wheat:[SPEC] DW guidance : at least 10000 entries per list , published at DW endpoint 16
-        DW->DW: [DATA STORE] Allocate a random unused idx for this wallet unit in a WIA status list of at least 10000 entries , no per-user uri\nkey_storage_status entry = the shared entry of the key storage type (Thai VC ARF 2.0 DRAFT 0 section 10.5.2 item ก)
+        DW->DW: [DATA STORE] Allocate a random unused idx for this wallet unit in a WIA status list of at least 10000 entries , no per-user uri\nkey_storage_status entry = the shared entry of the key storage type (Thai VC ARF 2.0 DRAFT 0 section 10.5.2 item (a))
+        note right of DW #wheat:[STANDARD] EUDI ARF annex 2.02\n• WIAM_10 (SHALL)  at activation the wallet provider issues at least one WIA and one key attestation per keystore\nThai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.1.1  WUA listed under the one-time setup
+        note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : D.1.1 lists the WUA under setup but does not say the wallet provider issues a WIA and a key attestation at activation\nquestion : does the Thai profile require them at activation , as EUDI WIAM_10 does
         note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• Appendix E  Wallet Attestation (WIA)
-        DW->DW: Sign the wallet attestation (WIA) with the wallet provider key of DW\ncnf = instance key , client_status = { uri of DW endpoint 16 , idx }\nheader x5c = wallet provider certificate (no iss) | cnf , wallet_name , wallet_version , wallet_solution_certification_information , wallet_link , client_status { status , exp }
+        note right of DW #wheat:[SPEC] WIA content\nheader : x5c = wallet provider certificate (no iss)\ncnf = instance key of this app , client_status = { uri of DW endpoint 16 , idx }\nwallet_name , wallet_version , wallet_solution_certification_information , wallet_link
+        DW->DW: Issue the WIA (wallet instance attestation) signed with the wallet provider key of DW
+        note right of DW #wheat:[SPEC] key attestation content\nheader : x5c = wallet provider certificate (no iss)\nattested_keys = holder public key , key_storage = level from the platform evidence\nkey_storage_status = shared entry of the key storage type , no nonce (no issuer at activation)
+        DW->DW: Issue the key attestation signed with the wallet provider key of DW
+        DW->DW: [DATA STORE] Store holder public key , key storage type , WIA idx , key_storage_status entry , WIA and key attestation issued , wallet unit status = ACTIVE , device status = HOLDER_BOUND
+        CoreApp<--DW: Wallet unit activated , WIA , key attestation , holder key registered
+        note right of CoreApp #wheat:[STANDARD] OpenID4VCI 1.0\n• Appendix D (MUST)  the key attestation nonce is the c_nonce when the issuer has a nonce endpoint
+        note right of CoreApp #wheat:[SPEC] the activation WIA and key attestation show the wallet unit is activated , they are not sent to VCVP Core\nVCVP Core has a nonce endpoint , so each credential request gets a new WIA and key attestation with its c_nonce (part 2 section 8)
+        CoreApp->CoreApp: [DATA STORE] Store the WIA and the key attestation of this wallet unit
+        CoreApp-->Mini: Holder key registered
     end
-    DW->DW: Verify signed challenge with publicKey\n[DATA STORE] Store holder public key , key storage type , WIA idx , key_storage_status entry , wallet unit status = ACTIVE , device status = HOLDER_BOUND
-    CoreApp<--DW: Wallet unit activated , WIA , holder key registered
-    CoreApp->CoreApp: [DATA STORE] Store WIA of this wallet instance
-    CoreApp-->Mini: Holder key registered
 else Holder key found
     Mini->Mini: Continue
 end
-Mini->DW:Request a credential + Token (from Tang Rat login) | POST /dw/v1/issuance/requests\n(DW endpoint 03) (CitizenId , deviceId registered with the holder key ,\ncredential type = OrgCode , Source , ServiceCode)\n+ IdP ID token
+note right of Mini #wheat:[SPEC] request : CitizenId , deviceId registered with the holder key , credential type = OrgCode , Source , ServiceCode , IdP ID token
+Mini->DW: Request a credential + Token (from Tang Rat login) | POST /dw/v1/issuance/requests (DW endpoint 03)
 Mini-->User: Show processing (wait for response of 1.2)
 DW->DW: Validate Token and CitizenId (CitizenId = Token owner)\n(also checked against pid of the IdP ID token in 1.3)
 note right of DW #wheat:[DATA STORE] DW database (issuance request)\nissuanceSessionId (created by DW)\nCitizenId (from the request , checked with the Token)\ndeviceId\nrequested credential type (OrgCode , Source , ServiceCode)\nstatus\nrequestedAt
@@ -132,7 +142,8 @@ alt Credential type or default schema not found
 else Schema found
     Core->Core: Map CredentialSchemaId to ENGINE_CREDENTIAL_SCHEMA_ID and the engine to call\n(ENGINE_CREDENTIAL_SCHEMA_ID = CredentialSchemas.EngineRefs[].RefCredentialSchemaId , engine = EngineRefs[].EngineName)
     note right of Core #wheat:[SPEC] one central WALLET Consumer-Key , issued by VCVP administrators to DW Core only | the agency opts in per schema , checked again in section 5
-    Core->Core: Check permission by caller channel\nWALLET (DW central Consumer-Key) : the agency allows requests from the wallet on this schema (CredentialSchemas.AllowWalletRequest)\nother channels : the schema belongs to the caller's organisation
+    note right of Core #wheat:[SPEC] WALLET (DW central Consumer-Key) : the agency allows requests from the wallet on this schema (CredentialSchemas.AllowWalletRequest)\nother channels : the schema belongs to the caller's organisation
+    Core->Core: Check permission by caller channel
 
     alt Wallet request not allowed by the agency
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 07 (FailureReason = WALLET_REQUEST_NOT_ALLOWED , EngineCalls)
@@ -155,7 +166,8 @@ DW<--Core: 200 | CredentialSchemaId , RequiredLoA (of the credential type , Cred
 
 note over DW #lightblue: 1.5 Check Identity Assurance Level
 DW->DW: Take RequiredLoA of the credential type (section 1.4)
-DW->DW: Validate assurance\nstill valid (assurance expiry) , meets required freshness ,\nIAL level ≥ RequiredLoA
+note right of DW #wheat:[SPEC] assurance still valid (assurance expiry) , meets the required freshness , IAL level >= RequiredLoA
+DW->DW: Validate assurance
 
 alt Assurance invalid / expired / not fresh / IAL below RequiredLoA
     DW->DW: Update issuance request status = STEP_UP_REQUIRED\n(VC not issued , this request ends here)
@@ -216,11 +228,12 @@ end
 
 note over DW #lightgreen: 4. Prepare Data
 note right of DW #wheat:[SPEC] check SyncDate against MaxDataAgeDays before requesting issuance , older data is fetched again (section 2)
-DW->DW: Map data to Claims[] based on schema details from VCVP Core 07\nSet OrgCode of the issuing agency\n(IssuerIdentityId and IssuerKeyId are not sent , VCVP Core selects them in section 5.1)
+note right of DW #wheat:[SPEC] claims mapped with the schema details from VCVP Core 07 , OrgCode of the issuing agency set\nIssuerIdentityId and IssuerKeyId are not sent , VCVP Core selects them in section 5.1
+DW->DW: Map the applicant data to Claims[]
 
 note right of DW #wheat:[AUDIT LOG] DW evidence of the claims prepared for this request , proves what data DW sent for issuance\nauditHash = hash(canonical audit payload)\nauditSignature = sign(auditHash) (optional)\npreviousAuditHash = link to previous log\nretentionPolicy = at least 7 years (Thai VC ARF 2.0 DRAFT 0 sections 8.6 and 8.8)\nretentionUntil = issuedAt + retention period\nimmutableStorage = WORM / append-only log
 note right of DW #wheat:[STANDARD] ISO/IEC 27002:2022\n• 8.15  logging\nISO/IEC 27701:2025\n• A.3.25  PII logging\nMDES notice on computer traffic data B.E. 2564\n• clauses 9 , 12  integrity , keep at least 90 days
-note right of DW #FFCDD2:[PENDING] ISO wording taken from secondary summaries , confirm against the purchased ISO/IEC 27002:2022 and 27701:2025
+note right of DW #FFCDD2:[PENDING] waiting for the purchased ISO/IEC 27002:2022 and 27701:2025\nissue : the ISO wording here comes from secondary summaries\nquestion : does the audit log match the ISO text
 DW->DW: Create tamper-evident audit record of the mapped claims (DW audit log)
 
 note right of DW #wheat:[DATA STORE] DW database\nissuance request\nmapped claims\naudit log\nidentity assurance reference
@@ -228,7 +241,8 @@ DW->DW: [DATA STORE] Store mapped claims + audit log in DW database (issuance re
 
 note over DW,Core #lightgreen: 5. Request Issuance and Validate Request
 DW->Core: Request credential issuance | POST /api/credential/v1 (VCVP Core 08)
-Core->Core: Check Consumer-Key (DW Core central Consumer-Key) and caller authorization\ncaller channel = WALLET , ActorType = CITIZEN\nthe schema belongs to the agency of OrgCode (CredentialSchemas.OrganizationId)\nWALLET : CredentialSchemas.AllowWalletRequest = true | other channels : OrgCode is the organisation of the caller's Consumer-Key
+note right of Core #wheat:[SPEC] caller channel = WALLET , ActorType = CITIZEN , the schema belongs to the agency of OrgCode (CredentialSchemas.OrganizationId)\nWALLET : CredentialSchemas.AllowWalletRequest = true | other channels : OrgCode is the organisation of the caller's Consumer-Key
+Core->Core: Check Consumer-Key (DW Core central Consumer-Key) and caller authorization
 alt Caller not authorized
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08\n(FailureReason = CALLER_NOT_AUTHORIZED / WALLET_REQUEST_NOT_ALLOWED , OrgCode and Actor empty when the Consumer-Key is invalid)
     DW<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED / WALLET_REQUEST_NOT_ALLOWED
@@ -261,8 +275,7 @@ alt Source data older than MaxDataAgeDays
     note right of Core #wheat:[ERROR AUDIT] VCVPAuditLog\nFailureReason = SOURCE_DATA_TOO_OLD\nMessageCode , Message (HTTP status of the error)\nEventTime\nActor (OrgCode , ConsumerKey , Channel)\nCorrelation.RequestId
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = SOURCE_DATA_TOO_OLD)
     DW<--Core: 400 | FailureReason = SOURCE_DATA_TOO_OLD
-    DW->Agency: Fetch applicant data from agency again
-    DW->DW: Repeat sections 2 to 5 with the new data and SyncDate
+    DW->DW: Repeat sections 2 to 5 (fetch the applicant data again , new SyncDate)
 else Source data within MaxDataAgeDays
     Core->Core: Continue issuance
 end
@@ -273,10 +286,12 @@ note right of Core #wheat:[SPEC] organisation , issuer key and DID are prepared 
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.7  DNSSEC for .go.th
 
 Core->Core: Look up agency organisation in Organizations table (OrgCode)
-Core->Core: Use the issuer DID of the schema (CredentialSchemas.IssuerIdentityId)\nuse IssuerIdentityId instead if the caller sent it\nengine to call = CredentialSchemas.EngineRefs[].EngineName
+note right of Core #wheat:[SPEC] issuer DID = CredentialSchemas.IssuerIdentityId , or IssuerIdentityId when the caller sent it\nengine to call = CredentialSchemas.EngineRefs[].EngineName
+Core->Core: Select the issuer DID
 note right of Core #wheat:[SPEC] key status RESERVED / ACTIVE / DEPRECATED / REVOKED , one ACTIVE key per identity , more than one = configuration error\nVCVP Core always sends issuer and issuerKey to the engine
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 13.7.7.1 (informative)  key lifecycle states
-Core->Core: Use the ACTIVE key of that DID , set by the agency in setup (Keys.Status = ACTIVE , Keys.IdentityId)\nuse IssuerKeyId instead if the caller sent it\nsent to the engine as issuerKey , stored in Credentials.IssuerKeyId (section 6)
+note right of Core #wheat:[SPEC] key = the ACTIVE key of that DID set by the agency (Keys.Status = ACTIVE , Keys.IdentityId) , or IssuerKeyId when the caller sent it\nsent to the engine as issuerKey , stored in Credentials.IssuerKeyId (section 6)
+Core->Core: Select the issuer signing key
 
 alt Organisation / issuer DID not found , or more than one ACTIVE key
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08\n(FailureReason = ORGANISATION_NOT_FOUND / ISSUER_DID_NOT_FOUND / ISSUER_KEY_AMBIGUOUS)
@@ -291,9 +306,10 @@ end
 
 note over Core,Trust #violet: 5.1.1 Check Trust Framework
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.8 (MUST)  Trusted List checks\n• 12.7 (informative , MUST)  not found = failure
-note right of Core #wheat:[SPEC] this check at issuance is a VCVP policy , the wallet checks the issuer again (part 2 sections 7.1 , 9)
-note right of Core #FFCDD2:[PENDING] Thai VC ARF 2.0 DRAFT 0 page 12.1 , 12.1.4 , 12.1.5 : the Issuer Trusted List has no published field for the credential types an issuer may issue\n(credential_types is a proposal only) and no field for the credential_issuer URL , the credential type check waits for the Thai profile\nthe engine vct changes with each schema version (/ssi/vct/v2/{orgId}/{schemaId}/SD_JWT_VC)
-Core->Core: Look up the issuer in the cached Issuer Trusted List (iss.txt , ETDA Trusted List Load)\nissuer DID and signing key listed (ServiceDigitalIdentity) , organisation and service status = active , validity period current ,\ncredential type (vct) within the issuer scope
+note right of Core #wheat:[SPEC] this check at issuance is a VCVP policy , the wallet (DW Core) checks the issuer again (part 2 sections 7 , 9)
+note right of Core #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : the Issuer Trusted List has no field yet for the credential types an issuer may issue or the credential_issuer URL (12.1.4 , 12.1.5)\nquestion : which fields will list them , and how to match them with the engine vct (it changes per schema version)
+note right of Core #wheat:[SPEC] issuer DID and signing key listed (ServiceDigitalIdentity) , organisation and service status = active , validity period current , credential type (vct) within the issuer scope
+Core->Core: Look up the issuer in the cached Issuer Trusted List (iss.txt , ETDA Trusted List Load)
 note right of Core #wheat:[AUDIT LOG] proof that the issuer passed the Trusted List check at issuance (VCVPAuditLog.TrustCheck)\ntrust validation result stored in TrustCheck.Result\ntimestamp stored in TrustCheck.CheckedAt\nTrusted List reference (LoTESequenceNumber , entity id) stored in TrustCheck.RegistryReference\nWritten once with the audit record of this request , never updated
 Core->Core: Keep trust validation result (for the audit record of VCVP Core 08)
 Core->Core: Validate the issuer passed every Trusted List check
@@ -342,14 +358,15 @@ note over Core,Engine #orange: 6. Create Digital Credential and Offer
 Core->Core: Map the issuer DID and key to ENGINE_ISSUER_IDENTIFIER_ID and ENGINE_ISSUER_KEY_ID\n(ENGINE_ISSUER_IDENTIFIER_ID = Identities.EngineRefs[].RefIdentityId , ENGINE_ISSUER_KEY_ID = Keys.EngineRefs[].RefKeyId)
 Core->Core: Use ClaimId from the request as the engine claim id\n(CredentialSchemas.Claims[].ClaimId is the claim id created by the engine)
 note right of Engine #wheat:[ENGINE RULE] the credential is created unsigned (state CREATED) , no status list index yet\nthe engine signs it when the wallet requests the credential (part 2 , VCVP Core 16)
-Core->Engine: Create credential | POST /api/credential/v1\ncredentialSchemaId = ENGINE_CREDENTIAL_SCHEMA_ID , issuer = ENGINE_ISSUER_IDENTIFIER_ID , issuerKey = ENGINE_ISSUER_KEY_ID\nprotocol = OPENID4VCI_FINAL1\nclaimValues [ claimId , path , value ]
+note right of Core #wheat:[SPEC] request : credentialSchemaId = ENGINE_CREDENTIAL_SCHEMA_ID , issuer = ENGINE_ISSUER_IDENTIFIER_ID , issuerKey = ENGINE_ISSUER_KEY_ID\nprotocol = OPENID4VCI_FINAL1 , claimValues [ claimId , path , value ]
+Core->Engine: Create credential | POST /api/credential/v1
 Engine-->Core: { id } = ENGINE_CREDENTIAL_ID
 
 note right of Core #wheat:[DATA STORE] Credentials table\nENGINE_CREDENTIAL_ID stored in EngineRefs[].RefCredentialId (+ EngineRefs[].EngineName)\nCredentialSchemaId , IssuerOrganizationId , IssuerIdentityId , IssuerKeyId , CitizenHashId (hash of CitizenId , cannot be turned back , the raw CitizenId is not stored) , SyncDate\nExpiredAt (validity of the schema , CredentialSchemas.ValidityYears)
 Core->Core: [DATA STORE] Store credential in Credentials table
 note right of Core #wheat:[STANDARD] OpenID4VCI 1.0\n• 4.1.1  Credential Offer parameters\nThai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.1.2 (example)  pre-authorized_code 5 minutes
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.3 (MUST)  tx_code from IAL2.1\n• appendix 8.1 D.2 (proposal)  tx_code recommended for IAL2.1 - 2.2\nOpenID4VCI 1.0\n• 3.5  tx_code by a second channel\n• 4.1.1  tx_code in the offer
-note right of Core #wheat:[CONDITION] When this runs : only for credential types with RequiredLoA IAL2.1 or higher\ntheir schema is created with transactionCode (NUMERIC , 6 digits) , IAL1 types have no transactionCode and skip the tx_code steps\nthe user must enter the code before the pre-authorized_code expires (300 seconds) , otherwise the offer is renewed with a new code
+note right of Core #wheat:[CONDITION] When this runs : only for credential types with RequiredLoA IAL2.1 or higher\ntheir schema is created with transactionCode (NUMERIC , 6 digits) , IAL1 types have no transactionCode and skip the tx_code steps\nthe user must enter the code before the pre-authorized_code expires (300 seconds) ,\notherwise the user asks for a new code and the offer is renewed (part 2 section 8)
 Core->Engine: Create offer link | POST /api/credential/v1/{ENGINE_CREDENTIAL_ID}/share
 alt Offer link not created (engine error)
     Engine-->Core: Error
@@ -357,11 +374,9 @@ alt Offer link not created (engine error)
     DW<--Core: 200 | CredentialId , OfferUrl = null , IssuerTrust (Result , CheckedAt , RegistryReference)
     DW->Core: Request offer link | POST /api/credential/v1/share (VCVP Core 09) (CredentialId)
     Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET , ActorType = CITIZEN\nValidate caller authorization
-    Core->Engine: Get credential state | GET /api/credential/v1/{ENGINE_CREDENTIAL_ID}
-    Engine-->Core: state = CREATED
     Core->Engine: Create offer link | POST /api/credential/v1/{ENGINE_CREDENTIAL_ID}/share
     Engine-->Core: url , expiresAt , transactionCode (only when the schema has transactionCode)
-    Core->Core: [DATA STORE] Store offer in Credentials table\n[AUDIT LOG] Write audit record of VCVP Core 09 : when the offer link was created for the credential (EngineCalls , Correlation.CredentialId)
+    Core->Core: [DATA STORE] Update the same credential in Credentials table : set OfferUrl and OfferExpiresAt , Status = PENDING\n[AUDIT LOG] Write audit record of VCVP Core 09 : when the offer link was created for the credential (EngineCalls , Correlation.CredentialId)
     DW<--Core: 200 | CredentialId + OfferUrl + ExpiresAt + TransactionCode (only when the schema has transactionCode)
 else Offer link created
     note right of Engine #wheat:[ENGINE RULE] schema transactionCode = { type NUMERIC or ALPHANUMERIC , length 4 to 10 , description }\nshare returns transactionCode only for such a schema , every share returns a new code
@@ -374,9 +389,9 @@ else Offer link created
 end
 note right of Core #wheat:[ENGINE RULE] no webhook when an offer expires | INTERACTION_EXPIRED only after the task INTERACTION_EXPIRATION_CHECK runs
 note right of Core #wheat:[SPEC] scheduled job : PENDING and OfferExpiresAt passed , engine PENDING or INTERACTION_EXPIRED -> OFFER_EXPIRED , engine OFFERED -> keep PENDING\na renewed offer sets PENDING again | credential_accepted later still sets ACTIVE
-DW->DW: [DATA STORE] Store CredentialId + OfferUrl + ExpiresAt + IssuerTrust in DW database (issuance request)\nDW Core resolves the offer next (part 2 section 7) and then answers request 1.2
+DW->DW: [DATA STORE] Store CredentialId + OfferUrl + ExpiresAt in DW database (issuance request) , IssuerTrust is not kept (DW Core checks the issuer itself in part 2 section 7)\nDW Core resolves the offer next (part 2 section 7) and then answers request 1.2
 opt Response has TransactionCode (credential type with RequiredLoA IAL2.1 or higher)
-    note right of DW #FFCDD2:[PENDING] DW team decides the delivery channels (SMS , e-mail , other) , where the verified contact comes from ,\nand what happens when the user has no verified contact | OpenID4VCI 1.0 3.5 : the code goes by a channel other than the offer
+    note right of DW #FFCDD2:[PENDING] waiting for the DW team\nissue : how the tx_code reaches the user is not decided (OpenID4VCI 3.5 : not the offer channel)\nquestion : which channels (SMS , e-mail) , where the verified contact comes from , what if the user has none
     DW-->User: Send tx_code by SMS or e-mail to the verified contact of the user (second channel)\nthe code is not logged and not stored after it is sent
 end
 
