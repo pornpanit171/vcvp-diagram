@@ -320,7 +320,7 @@ else Organisation and issuer DID found , at most one ACTIVE key
 end
 
 note over Core,Trust #violet: 5.1.1 Check Trust Framework
-note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.8 (MUST)  Trusted List checks\n• 12.7 (informative , MUST)  not found = failure\n• chapter 15 appendix B.3.1 item 4 (MUST)  role and allowed credential types before trusting issuance
+note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.8 (MUST)  identity , key , status , validity period and scope checked by role\n• 12.7 (informative , MUST)  not found = failure\n• 8.4.3 step 2 (MUST)  find the Issuer service , its status confirmed active
 note right of Core #wheat:[SPEC] this check at issuance is a VCVP policy , the wallet (DW Core) checks the issuer again (part 2 sections 7 , 9)
 note right of Core #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : the Issuer Trusted List has no field yet for the credential types an issuer may issue or the credential_issuer URL (12.1.4 , 12.1.5)\nquestion : which fields will list them , and how to match them with the engine vct (it changes per schema version)
 note right of Core #wheat:[SPEC] service type = issuer (ServiceTypeIdentifier) , issuer DID and signing key listed (ServiceDigitalIdentity) , organisation and service status = active , validity period current , credential type (vct) within the issuer scope
