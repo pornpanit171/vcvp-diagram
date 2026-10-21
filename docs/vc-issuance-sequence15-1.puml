@@ -14,6 +14,7 @@ participant "<color:#white>ETDA Trusted List (CDN)</color>" as Trust #0B2E6B
 note over Core,Trust #violet: 0. Load ETDA Trusted List (when a transaction needs it)
 note right of Core #wheat:[CONDITION] before this flow (setup , outside the system) : the issuing agency is registered in iss.txt (DID , keys , credential types)\nand DW Core in wp.txt as wallet provider (certificate for WUA signatures , location of the WUA status lists) | WUA = WIA and key attestation\nThai VC ARF 2.0 DRAFT 0 9.9 (MUST) , 10.4.2
 note right of Core #wheat:[SPEC] steps in the ETDA Trusted List Load sequence (first tab)
+note right of Core #wheat:[SPEC] Trusted List not usable (TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE) : the calling step answers 503 Service Unavailable + Retry-After: 300\nnot the trust failure reason of that step , as in the ETDA Trusted List Load sequence
 
 note over User,CoreApp #lightblue: 1.1 User Login
 User->CoreApp: Login (PIN / biometric)
@@ -319,10 +320,10 @@ else Organisation and issuer DID found , at most one ACTIVE key
 end
 
 note over Core,Trust #violet: 5.1.1 Check Trust Framework
-note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.8 (MUST)  Trusted List checks\n• 12.7 (informative , MUST)  not found = failure
+note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.8 (MUST)  Trusted List checks\n• 12.7 (informative , MUST)  not found = failure\n• chapter 15 appendix B.3.1 item 4 (MUST)  role and allowed credential types before trusting issuance
 note right of Core #wheat:[SPEC] this check at issuance is a VCVP policy , the wallet (DW Core) checks the issuer again (part 2 sections 7 , 9)
 note right of Core #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : the Issuer Trusted List has no field yet for the credential types an issuer may issue or the credential_issuer URL (12.1.4 , 12.1.5)\nquestion : which fields will list them , and how to match them with the engine vct (it changes per schema version)
-note right of Core #wheat:[SPEC] issuer DID and signing key listed (ServiceDigitalIdentity) , organisation and service status = active , validity period current , credential type (vct) within the issuer scope
+note right of Core #wheat:[SPEC] service type = issuer (ServiceTypeIdentifier) , issuer DID and signing key listed (ServiceDigitalIdentity) , organisation and service status = active , validity period current , credential type (vct) within the issuer scope
 Core->Core: Look up the issuer in the cached Issuer Trusted List (iss.txt , ETDA Trusted List Load)
 note right of Core #wheat:[AUDIT LOG] proof that the issuer passed the Trusted List check at issuance (VCVPAuditLog.TrustCheck)\ntrust validation result stored in TrustCheck.Result\ntimestamp stored in TrustCheck.CheckedAt\nTrusted List reference (LoTESequenceNumber , entity id) stored in TrustCheck.RegistryReference\nWritten once with the audit record of this request , never updated
 Core->Core: Keep trust validation result (for the audit record of VCVP Core 08)

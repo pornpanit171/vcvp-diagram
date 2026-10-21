@@ -13,6 +13,7 @@ participant "<color:#white>ETDA Trusted List (CDN)</color>" as Trust #0B2E6B
 note over DW,Trust #violet: 0. Load ETDA Trusted List (when a transaction needs it)
 note right of DW #wheat:[CONDITION] before this flow (setup , outside the system) : the issuing agency is registered in iss.txt (DID , keys , credential types)\nand DW Core in wp.txt as wallet provider (certificate for WUA signatures , location of the WUA status lists) | WUA = WIA and key attestation\nThai VC ARF 2.0 DRAFT 0 9.9 (MUST) , 10.4.2
 note right of DW #wheat:[SPEC] steps in the ETDA Trusted List Load sequence (first tab) | DW Core loads iss.txt (section 7) , VCVP Core loads wp.txt (section 8)
+note right of DW #wheat:[SPEC] Trusted List not usable (TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE) : the calling step answers 503 Service Unavailable + Retry-After: 300\nnot the trust failure reason of that step , as in the ETDA Trusted List Load sequence
 
 note over DW,Engine #orange: 7. DW Core Resolves the Credential Offer (inside request 1.2)
 
@@ -53,10 +54,10 @@ alt credential_issuer does not match / credential configuration not supported
 else Metadata valid
     DW->DW: Continue
 end
-note right of DW #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.4.3 (MUST)  TC-3 first round , the wallet checks the issuer\n• 9.10 (MUST)  reject at once when the local Trusted List check fails\n• appendix 8.1 D.1.4 (MUST)  check the issuer before authentication , stop at once on failure\nOpenID4VCI 1.0\n• 13.5 (MUST)  the Wallet validates the Credential Issuer
+note right of DW #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.4.3 (MUST)  TC-3 first round , the wallet checks the issuer\n• 9.10 (MUST)  reject at once when the local Trusted List check fails\n• appendix 8.1 D.1.4 (MUST)  check the issuer before authentication , stop at once on failure\n• chapter 15 appendix B.3.1 item 4 (MUST)  role and allowed credential types before trusting issuance\nOpenID4VCI 1.0\n• 13.5 (MUST)  the Wallet validates the Credential Issuer
 note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : D.1.4 says the wallet checks the issuer with the Trusted List "on the device"\nquestion : may DW Core (the server part of the wallet) check instead of the app
 note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : no field yet for the credential_issuer URL , issuer scope and status (12.1.4) , D.1.4 (MUST) rejects when the scope is unknown\nquestion : which fields will list them
-DW->DW: Look up the issuer of credential_issuer in the cached Issuer Trusted List (iss.txt , ETDA Trusted List Load)\norganisation and service status = active , validity period current , credential type in the issuer scope
+DW->DW: Look up the issuer of credential_issuer in the cached Issuer Trusted List (iss.txt , ETDA Trusted List Load)\nservice type = issuer (ServiceTypeIdentifier) , organisation and service status = active , validity period current , credential type in the issuer scope
 alt Issuer not in the Trusted List / not active / credential type not in scope
     DW->DW: Update issuance request status = ISSUANCE_FAILED (reason = ISSUER_NOT_TRUSTED)\n(no nonce is requested , VC not issued , credential not added)
     Mini<--DW: Error (response of 1.2) | reason = ISSUER_NOT_TRUSTED
@@ -127,7 +128,7 @@ note right of DW #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 10.5.1 (SHOULD) 
     DW->Core: Request access token with pre-authorized_code (from offer) | POST token_endpoint = /ssi/openid4vci/final-1.0/{credentialSchemaId}/token (VCVP Core 14)
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.1.9 (MUST)  check the Wallet Attestation before an access token (TC-2)\n• 12.8 (MUST)  fetch the list when the connection needs the trust decision\n• 10.4.2  the Wallet Provider Trusted List carries the certificate that verifies WUA signatures\nOpenID4VCI 1.0\n• Appendix E (MUST)  the Wallet Attestation is signed by an issuer the Credential Issuer trusts\nEUDI TS3 v1.5.2\n• 2.2.1.2 (SHALL)  WIA signature under the x5c certificate , the certificate validates against the Wallet Provider Trusted List
 note right of Core #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : wp.txt has no field yet for the certificate that signs the WUA (10.4.2)\nquestion : which field holds it
-Core->Core: Check the x5c signing certificate of the WIA against the cached Wallet Provider Trusted List (wp.txt , ETDA Trusted List Load)\nrole , certificate , organisation and service status = active , validity period current
+Core->Core: Check the x5c signing certificate of the WIA against the cached Wallet Provider Trusted List (wp.txt , ETDA Trusted List Load)\nrole (service type = wallet provider , ServiceTypeIdentifier) , certificate , organisation and service status = active , validity period current
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.6 (MUST)  replay protection (nonce , jti)
 note right of Core #wheat:[ENGINE RULE] the engine accepts the same WIA-PoP jti on a second offer
 note right of Core #B3E5FC:[WORKAROUND] VCVP Core keeps the used WIA-PoP jti because the engine accepts the same jti\nremove the jti check and Credentials.WiaPopJti when the engine rejects a WIA-PoP with a used jti
@@ -453,7 +454,7 @@ DW<--Core: Credential Response (application/json) | credentials[].credential , n
         note right of DW #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.1.11  checks before saving (TC-3 , TC-4)\n• 8.4.3 (MUST)  a failed TC-3 step rejects the VC\n• 8.4.4 (MUST)  status checked every time\n• 9.10 (MUST)  local Trusted List check before any network call
         note right of DW #wheat:[SPEC] DW Core checks the credential before returning it to the app\nCheck 1 : the issuer is in the Trusted List , active , and may issue this type\nCheck 2 : the issuer really signed it and nothing was changed\nCheck 3 : it is within its validity period (nbf , exp)\nCheck 4 : it is not revoked or suspended (Token Status List)\nCheck 5 : the credential type description was not changed (vct#integrity)\nChecks 1 to 4 : appendix 8.1 D.1.11 , 8.4.3 , 8.4.4 | Check 5 : SD-JWT VC draft-19 section 6\nany check fails : credential_failure , not returned to the app | all pass : the app saves it (9.1 , 9.2) , then credential_accepted (9.3)
         note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : D.1.11 and 8.4.3 say the wallet checks the credential before saving it\nquestion : may DW Core (the server part of the wallet) check instead of the app
-        note right of DW #wheat:[SPEC] Check 1 : organisation and service status = active , vct in the issuer scope , keys listed for the issuer
+        note right of DW #wheat:[SPEC] Check 1 : service type = issuer (ServiceTypeIdentifier) , organisation and service status = active , vct in the issuer scope , keys listed for the issuer
         DW->DW: Look up iss in the cached Issuer Trusted List (Check 1)
         note right of DW #wheat:[SPEC] did:web to URL : remove did:web: , replace : with / , decode %3A , add /did.json\nresult : https://{host}/ssi/did-web/v1/{id}/did.json ({id} = last segment of the issuer DID)
         DW->DW: Build the DID document URL from the issuer DID (iss , did:web)
@@ -470,7 +471,7 @@ DW<--Core: Credential Response (application/json) | credentials[].credential , n
         DW<--Core: credential type description (vct type metadata)
         note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : 12.6 (MUST) checks the validity period of each issuer key , the Trusted List has no per-key period\nquestion : will the Trusted List list each issuer key with its start and end date
         note right of DW #wheat:[STANDARD] RFC 9901 (SD-JWT)\n• 7.1 , 7.2 (MUST)  verify the issuer signature and every disclosure\nThai VC ARF 2.0 DRAFT 0\n• 12.6 (MUST NOT)  no DID document key instead of the Trusted List key
-        note right of DW #wheat:[SPEC] the DID before # in kid = iss , the key with id = kid is in the issuer DID document under assertionMethod and listed for the issuer in the Trusted List\nthen an SD-JWT library checks the signature and every disclosure\nthe key comes from kid (8.4.3 step 4) and must be listed in the Trusted List (12.6) , not from JWKS (D.1.11 [28])
+        note right of DW #wheat:[SPEC] the DID before # in kid = iss , the key with id = kid is in the issuer DID document under assertionMethod and listed for the issuer in the Trusted List\nthen an SD-JWT library checks the signature and every disclosure , alg matches the key type (ES256 = EC P-256 , EdDSA = Ed25519) , not taken from the header alone (11.3 MUST)\nthe key comes from kid (8.4.3 step 4) and must be listed in the Trusted List (12.6) , not from JWKS (D.1.11 [28])
         DW->DW: Verify issuer signature (Check 2)
         note right of DW #wheat:[SPEC] Check 3 : nbf <= now , exp > now when present
         DW->DW: Check the validity window (Check 3)
@@ -483,7 +484,7 @@ DW<--Core: Credential Response (application/json) | credentials[].credential , n
         note right of DW #wheat:[STANDARD] Token Status List draft-21\n• 5.1 (MUST , REQUIRED , RECOMMENDED)  typ , sub , iat , exp , ttl\n• 8.3 (MUST)  check exp when present , reject idx out of range\nThai VC ARF 2.0 DRAFT 0\n• 8.4.4 (MUST)  fail closed
         note right of DW #wheat:[SPEC] accept only 0x00 (VALID) at idx , cache by ttl
         note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : 13.2 says the profile fixes one Token Status List revision (draft-18 and draft-21 differ)\nquestion : which revision
-        note right of DW #wheat:[SPEC] Check 4 : signature by the issuer key , sub = status_list.uri , iat , exp when present , value at idx = 0x00 (VALID)
+        note right of DW #wheat:[SPEC] Check 4 : signature by the issuer key (alg matches the key type , 11.3 MUST) , sub = status_list.uri , iat , exp when present , value at idx = 0x00 (VALID)
         DW->DW: Check the status (Check 4)
         note right of DW #wheat:[STANDARD] SD-JWT VC draft-19\n• 6 (MUST)  verify a retrieved document against its #integrity value
         note right of DW #wheat:[SPEC] Check 5 : hash of the credential type description downloaded from VCVP Core 18 = vct#integrity in the credential
