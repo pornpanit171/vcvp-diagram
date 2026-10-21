@@ -328,7 +328,15 @@ Core->Core: Look up the issuer in the cached Issuer Trusted List (iss.txt , ETDA
 note right of Core #wheat:[AUDIT LOG] proof that the issuer passed the Trusted List check at issuance (VCVPAuditLog.TrustCheck)\ntrust validation result stored in TrustCheck.Result\ntimestamp stored in TrustCheck.CheckedAt\nTrusted List reference (LoTESequenceNumber , entity id) stored in TrustCheck.RegistryReference\nWritten once with the audit record of this request , never updated
 Core->Core: Keep trust validation result (for the audit record of VCVP Core 08)
 Core->Core: Validate the issuer passed every Trusted List check
-alt Trust validation failed
+note right of Core #wheat:[SPEC] ISSUER_KEY_NOT_LISTED : the issuer DID is listed , the selected signing key is not listed yet\nthe agency waits until ETDA publishes the key (Thai VC ARF 2.0 DRAFT 0 section 12.6 , within 24 hours after the agency reports it)
+alt Issuer DID listed , the selected signing key not listed yet
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = ISSUER_KEY_NOT_LISTED , TrustCheck)
+    DW<--Core: 409 | FailureReason = ISSUER_KEY_NOT_LISTED
+    DW->DW: Update issuance request status = ISSUER_KEY_NOT_LISTED\n(credential not issued)
+    Mini<--DW: Error (response of 1.2) | reason = ISSUER_KEY_NOT_LISTED
+    Mini-->User: Show error , credential not added (reason)
+    note over User,Mini #wheat: Issuance stops here , credential not added , sections 5.2 to 11 do not apply
+else Trust validation failed
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = TRUST_FAILED , TrustCheck)
     DW<--Core: 403 | FailureReason = TRUST_FAILED
     DW->DW: Update issuance request status = TRUST_FAILED\n(credential not issued)
@@ -346,9 +354,18 @@ Core->Core: Check the issuer key from section 5.1 (Keys.Status , Keys.ExpiryDate
 
 alt No ACTIVE key / key expired (Keys.ExpiryDate passed)
 
-    alt Next key reserved in the issuer DID is available
+    note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.6 (MUST NOT)  no DID document key instead of the Trusted List key
+    Core->Core: Find the next reserved key of the DID that is listed for the issuer in the cached Issuer Trusted List (iss.txt , ETDA Trusted List Load)
+    alt A reserved key of the DID is listed in iss.txt
         note right of Core #wheat:[SPEC] the reserved key is already in the DID (added when the DID was created , VCVP Core 03)\nthe switch changes only Keys.Status , no engine call , the next issuance sends the new key as issuerKey
         Core->Core: Switch issuerKey to the next reserved key in the DID\n(Keys.Status RESERVED → ACTIVE)
+    else Reserved keys left , none listed in iss.txt yet
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = ISSUER_KEY_NOT_LISTED)
+        DW<--Core: 409 | FailureReason = ISSUER_KEY_NOT_LISTED
+        DW->DW: Update issuance request status = ISSUER_KEY_NOT_LISTED\n(credential not issued)
+        Mini<--DW: Error (response of 1.2) | reason = ISSUER_KEY_NOT_LISTED
+        Mini-->User: Show error , credential not added (reason)
+        note over User,Mini #wheat: Issuance stops here , credential not added , sections 6 to 11 do not apply
     else No reserved key left in the DID
         note right of Core #wheat:[SPEC] no key is created during issuance , the agency creates a key (VCVP Core 02) and adds it to the DID (VCVP Core 40) in setup
         note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.6 (MUST)  Trusted List update within 24 hours after a rotation
