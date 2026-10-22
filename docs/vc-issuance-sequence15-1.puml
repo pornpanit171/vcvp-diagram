@@ -149,7 +149,7 @@ alt Credential type or default schema not found
     Mini-->User: Show error , credential not added (reason)
     note over User,Mini #wheat: Issuance stops here , credential not added , sections 1.4.2 to 11 do not apply
 else Schema found
-    Core->Core: Read the engine to call from the schema (CredentialSchemas.EngineName)
+    Core->Core: Read the engine to call from the schema (CredentialSchemas.EngineId)
     note right of Core #wheat:[SPEC] one central WALLET Consumer-Key , issued by VCVP administrators to DW Core only | the agency opts in per schema , checked again in section 5
     note right of Core #wheat:[SPEC] WALLET (DW central Consumer-Key) : the agency allows requests from the wallet on this schema (CredentialSchemas.AllowWalletRequest)\nother channels : the schema belongs to the caller's organisation
     Core->Core: Check permission by caller channel
@@ -301,7 +301,7 @@ note right of Core #wheat:[SPEC] organisation , issuer key and DID are prepared 
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.7  DNSSEC for .go.th
 
 Core->Core: Look up agency organisation in Organizations table (OrgCode)
-note right of Core #wheat:[SPEC] issuer DID = CredentialSchemas.IssuerIdentityId , or IssuerIdentityId when the caller sent it\nengine to call = CredentialSchemas.EngineName
+note right of Core #wheat:[SPEC] issuer DID = CredentialSchemas.IssuerIdentityId , or IssuerIdentityId when the caller sent it\nengine to call = CredentialSchemas.EngineId
 Core->Core: Select the issuer DID
 note right of Core #wheat:[SPEC] key status RESERVED / ACTIVE / DEPRECATED / REVOKED , one ACTIVE key per identity , more than one = configuration error\nVCVP Core always sends issuer and issuerKey to the engine
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 13.7.7.1 (informative)  key lifecycle states
@@ -393,7 +393,7 @@ note right of Core #wheat:[SPEC] request : credentialSchemaId = CredentialSchema
 Core->Engine: Create credential | POST /api/credential/v1
 Engine-->Core: { id } = CredentialId
 
-note right of Core #wheat:[DATA STORE] Credentials table\nCredentialId = id from the engine (+ EngineName)\nCredentialSchemaId , IssuerOrganizationId , IssuerIdentityId , IssuerKeyId , CitizenHashId (hash of CitizenId , cannot be turned back , the raw CitizenId is not stored) , SyncDate\nExpiredAt (validity of the schema , CredentialSchemas.ValidityYears)
+note right of Core #wheat:[DATA STORE] Credentials table\nCredentialId = id from the engine (+ EngineId)\nCredentialSchemaId , IssuerOrganizationId , IssuerIdentityId , IssuerKeyId , CitizenHashId (hash of CitizenId , cannot be turned back , the raw CitizenId is not stored) , SyncDate\nExpiredAt (validity of the schema , CredentialSchemas.ValidityYears)
 Core->Core: [DATA STORE] Store credential in Credentials table
 note right of Core #wheat:[STANDARD] OpenID4VCI 1.0\n• 4.1.1  Credential Offer parameters\nThai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.1.2 (example)  pre-authorized_code 5 minutes
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.3 (MUST)  tx_code from IAL2.1\n• appendix 8.1 D.2 (proposal)  tx_code recommended for IAL2.1 - 2.2\nOpenID4VCI 1.0\n• 3.5  tx_code by a second channel\n• 4.1.1  tx_code in the offer
