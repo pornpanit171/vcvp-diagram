@@ -72,11 +72,11 @@ note right of DW #wheat:[SPEC] DW Core is a fully trusted part of the wallet , t
 else Holder key found
     Mini->Mini: Continue
 end
-note right of Mini #wheat:[SPEC] request : CitizenId , deviceId registered with the holder key , credential type = OrgCode , Source , ServiceCode , IdP ID token
+note right of Mini #wheat:[SPEC] request : CitizenId , deviceId registered with the holder key , credential type = OrgCode , ServiceCode , IdP ID token
 Mini->DW: Request a credential + Token (from Tang Rat login) | POST /dw/v1/issuance/requests (DW endpoint 03)
 Mini-->User: Show processing (wait for response of 1.2)
 DW->DW: Validate Token and CitizenId (CitizenId = Token owner)\n(also checked against pid of the IdP ID token in 1.3)
-note right of DW #wheat:[DATA STORE] DW database (issuance request)\nissuanceSessionId (created by DW)\nCitizenId (from the request , checked with the Token)\ndeviceId\nrequested credential type (OrgCode , Source , ServiceCode)\nstatus\nrequestedAt
+note right of DW #wheat:[DATA STORE] DW database (issuance request)\nissuanceSessionId (created by DW)\nCitizenId (from the request , checked with the Token)\ndeviceId\nrequested credential type (OrgCode , ServiceCode)\nstatus\nrequestedAt
 DW->DW: [DATA STORE] Store issuance request in DW database
 DW->DW: Look up holder key of this device in DW database\n(look up by deviceId , device status = HOLDER_BOUND)
 
@@ -118,7 +118,7 @@ note over DW,Engine #violet: 1.4 Get Schema Details
 note right of Core #wheat:[SPEC] two callers : DW Core (this flow) and agency systems (system to system) | steps marked caller channel = WALLET run only for DW Core
 note right of Core #wheat:[SPEC] VCVPAuditLog for every request , also those rejected at the Consumer-Key check (OrgCode and Actor empty) , kept 7 years
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.6 , 8.8 (MUST)  audit log at least 7 years
-DW->Core: Get the default schema of the requested credential type | POST /api/credential-schema/v1/get-by-organisation (VCVP Core 07)\nOrgCode , Source , ServiceCode
+DW->Core: Get the default schema of the requested credential type | POST /api/credential-schema/v1/get-by-organisation (VCVP Core 07)\nOrgCode , ServiceCode
 Core->Core: Check Consumer-Key (DW Core central Consumer-Key) and its permission for this endpoint\ncaller channel = WALLET , ActorType = CITIZEN
 note right of Core #wheat:[STANDARD] RFC 9110\n• 15.5.2 (MUST)  401 when the request has no valid credentials , with WWW-Authenticate\n• 15.5.4  403 when the caller is known but not allowed
 alt Consumer-Key invalid or missing
@@ -139,7 +139,7 @@ else Caller authorized
     Core->Core: Continue to Read Schema
 end
 note over DW,Engine #orange: 1.4.1 Read Schema
-Core->Core: Look up the credential type of OrgCode + Source + ServiceCode (CredentialTypes , Status = ACTIVE)\nthen its default schema (CredentialSchemas.CredentialTypeId , IsDefault = true)
+Core->Core: Look up the credential type of OrgCode + ServiceCode (CredentialTypes , Status = ACTIVE)\nthen its default schema (CredentialSchemas.CredentialTypeId , IsDefault = true)
 alt Credential type or default schema not found
     note right of Core #wheat:[SPEC] the credential type and schema are created by the issuing agency , not during issuance
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 07 (FailureReason = CREDENTIAL_TYPE_NOT_FOUND or SCHEMA_NOT_FOUND , EngineCalls)
@@ -268,16 +268,23 @@ else Caller authorized
     Core->Core: Continue
 end
 
-note right of Core #wheat:[SPEC] CredentialSchemaId is still the default of its credential type (IsDefault) , else 409 SCHEMA_NOT_DEFAULT\nIssuerIdentityId and IssuerKeyId are optional : identity of the schema owner and ACTIVE , key of that identity (Keys.IdentityId) and ACTIVE\na key with Keys.Status = REVOKED (compromised) : FailureReason = ISSUER_KEY_COMPROMISED (Key-Compromise-sequence)
-Core->Core: Validate the request against the schema\n(default schema , claims , issuer identity and key when sent)
+note right of Core #wheat:[SPEC] CredentialSchemaId is still the default of its credential type (IsDefault) , else 409 SCHEMA_NOT_DEFAULT\nIssuerIdentityId and IssuerKeyId are optional : identity of the schema owner and ACTIVE , key of that identity (Keys.IdentityId) and ACTIVE\na key with Keys.Status = REVOKED (compromised) : FailureReason = ISSUER_KEY_COMPROMISED (Key-Compromise-sequence)\nan expired key sent by the caller (Keys.ExpiryDate passed) : Keys.Status = DEPRECATED , 409 ISSUER_KEY_EXPIRED , no switch to another key
+Core->Core: Validate the request against the schema\n(default schema , issuer identity and key when sent)
 alt Schema is no longer the default of its credential type
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = SCHEMA_NOT_DEFAULT)
     DW<--Core: 409 | FailureReason = SCHEMA_NOT_DEFAULT
     DW->DW: Get the default schema again (section 1.4) and repeat sections 4 and 5
-else Claims or issuer identity / key invalid
+else Issuer identity / key invalid
     note right of Core #wheat:[ERROR AUDIT] VCVPAuditLog\nFailureReason = REQUEST_REJECTED\nMessageCode , Message (HTTP status of the error)\nEventTime\nActor (OrgCode , ConsumerKey , Channel)\nCorrelation.RequestId
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = REQUEST_REJECTED / ISSUER_KEY_COMPROMISED)
     DW<--Core: 400 | FailureReason = REQUEST_REJECTED / ISSUER_KEY_COMPROMISED
+    DW->DW: Update issuance request status = FailureReason\n(credential not issued)
+    Mini<--DW: Error (response of 1.2) | reason = FailureReason
+    Mini-->User: Show error , credential not added (reason)
+else Key sent by the caller has expired (Keys.ExpiryDate passed)
+    Core->Core: Mark the key as DEPRECATED (Keys.Status)
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = ISSUER_KEY_EXPIRED)
+    DW<--Core: 409 | FailureReason = ISSUER_KEY_EXPIRED
     DW->DW: Update issuance request status = FailureReason\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = FailureReason
     Mini-->User: Show error , credential not added (reason)
@@ -310,16 +317,55 @@ Core->Core: Select the issuer signing key
 
 alt Organisation / issuer DID not found , or more than one ACTIVE key
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08\n(FailureReason = ORGANISATION_NOT_FOUND / ISSUER_DID_NOT_FOUND / ISSUER_KEY_AMBIGUOUS)
-    DW<--Core: Reject issuance request\nFailureReason = ORGANISATION_NOT_FOUND / ISSUER_DID_NOT_FOUND / ISSUER_KEY_AMBIGUOUS
+    DW<--Core: Reject issuance request\n422 ORGANISATION_NOT_FOUND / 409 ISSUER_DID_NOT_FOUND / 500 ISSUER_KEY_AMBIGUOUS (FailureReason)
     DW->DW: Update issuance request status = ISSUER_SETUP_NOT_FOUND\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = ISSUER_SETUP_NOT_FOUND
     Mini-->User: Show error , credential not added (reason)
-    note over User,Mini #wheat: Issuance stops here , credential not added , sections 5.1.1 to 11 do not apply
+    note over User,Mini #wheat: Issuance stops here , credential not added , sections 5.2 to 11 do not apply
 else Organisation and issuer DID found , at most one ACTIVE key
     Core->Core: Continue
 end
 
-note over Core,Trust #violet: 5.1.1 Check Trust Framework
+note over Core,Engine #orange: 5.2 Issuer Key Check
+
+Core->Core: Check the issuer key from section 5.1 (Keys.Status , Keys.ExpiryDate)
+
+alt No ACTIVE key / key expired (Keys.ExpiryDate passed) , key selected by VCVP Core (no IssuerKeyId sent)
+
+    note right of Core #wheat:[SPEC] the expired key becomes DEPRECATED in every case below , kept for verification , a switched key signs new credentials | compromised key : Key-Compromise-sequence (VCVP Core 36)
+    note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 13.7.7.1 (informative)  old key stays in assertionMethod
+    Core->Core: Mark the expired key as DEPRECATED (Keys.Status) when its Keys.ExpiryDate has passed
+
+    note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.6 (MUST NOT)  no DID document key instead of the Trusted List key
+    note right of Core #wheat:[SPEC] iss.txt is used only while it is usable (ETDA Trusted List Load) , an unusable list : no switch , 503 + Retry-After: 300 , TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE
+    Core->Core: Find the next reserved key of the DID that is listed for the issuer in the cached Issuer Trusted List (iss.txt , ETDA Trusted List Load)
+    alt A reserved key of the DID is listed in iss.txt
+        note right of Core #wheat:[SPEC] the reserved key is already in the DID (added when the DID was created , VCVP Core 03)\nthe switch changes only Keys.Status , no engine call , the next issuance sends the new key as issuerKey
+        Core->Core: Switch issuerKey to the next reserved key in the DID\n(Keys.Status RESERVED → ACTIVE)
+    else Reserved keys left , none listed in iss.txt yet
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = ISSUER_KEY_NOT_LISTED)
+        DW<--Core: 409 | FailureReason = ISSUER_KEY_NOT_LISTED
+        DW->DW: Update issuance request status = ISSUER_KEY_NOT_LISTED\n(credential not issued)
+        Mini<--DW: Error (response of 1.2) | reason = ISSUER_KEY_NOT_LISTED
+        Mini-->User: Show error , credential not added (reason)
+        note over User,Mini #wheat: Issuance stops here , credential not added , sections 5.3 to 11 do not apply
+    else No reserved key left in the DID
+        note right of Core #wheat:[SPEC] no key is created during issuance , the agency creates a key (VCVP Core 02) and adds it to the DID (VCVP Core 40) in setup
+        note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.6 (MUST)  Trusted List update within 24 hours after a rotation
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = ISSUER_KEY_EXPIRED)
+
+        DW<--Core: 409 | FailureReason = ISSUER_KEY_EXPIRED
+        DW->DW: Update issuance request status = ISSUER_KEY_EXPIRED\n(credential not issued)
+        Mini<--DW: Error (response of 1.2) | reason = ISSUER_KEY_EXPIRED
+        Mini-->User: Show error , credential not added (reason)
+        note over User,Mini #wheat: Issuance stops here , credential not added , sections 5.3 to 11 do not apply
+    end
+
+else Key active
+    Core->Core: Continue issuance
+end
+
+note over Core,Trust #violet: 5.3 Check Trust Framework
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.8 (MUST)  identity , key , status , validity period and scope checked by role\n• 12.7 (informative , MUST)  not found = failure\n• 8.4.3 step 2 (MUST)  find the Issuer service , its status confirmed active
 note right of Core #wheat:[SPEC] this check at issuance is a VCVP policy , the wallet (DW Core) checks the issuer again (part 2 sections 7 , 9)
 note right of Core #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : the Issuer Trusted List has no field yet for the credential types an issuer may issue or the credential_issuer URL (12.1.4 , 12.1.5)\nquestion : which fields will list them , and how to match them with the engine vct (it changes per schema version)
@@ -335,63 +381,36 @@ alt Issuer DID listed , the selected signing key not listed yet
     DW->DW: Update issuance request status = ISSUER_KEY_NOT_LISTED\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = ISSUER_KEY_NOT_LISTED
     Mini-->User: Show error , credential not added (reason)
-    note over User,Mini #wheat: Issuance stops here , credential not added , sections 5.2 to 11 do not apply
+    note over User,Mini #wheat: Issuance stops here , credential not added , sections 6 to 11 do not apply
 else Trust validation failed
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = TRUST_FAILED , TrustCheck)
     DW<--Core: 403 | FailureReason = TRUST_FAILED
     DW->DW: Update issuance request status = TRUST_FAILED\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = TRUST_FAILED
     Mini-->User: Show error , credential not added (reason)
-    note over User,Mini #wheat: Issuance stops here , credential not added , sections 5.2 to 11 do not apply
+    note over User,Mini #wheat: Issuance stops here , credential not added , sections 6 to 11 do not apply
 else Trust validation passed
     Core->Core: Continue issuance
 end
 
 
-note over Core,Engine #orange: 5.2 Issuer Key Check
-
-Core->Core: Check the issuer key from section 5.1 (Keys.Status , Keys.ExpiryDate)
-
-alt No ACTIVE key / key expired (Keys.ExpiryDate passed)
-
-    note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.6 (MUST NOT)  no DID document key instead of the Trusted List key
-    Core->Core: Find the next reserved key of the DID that is listed for the issuer in the cached Issuer Trusted List (iss.txt , ETDA Trusted List Load)
-    alt A reserved key of the DID is listed in iss.txt
-        note right of Core #wheat:[SPEC] the reserved key is already in the DID (added when the DID was created , VCVP Core 03)\nthe switch changes only Keys.Status , no engine call , the next issuance sends the new key as issuerKey
-        Core->Core: Switch issuerKey to the next reserved key in the DID\n(Keys.Status RESERVED → ACTIVE)
-    else Reserved keys left , none listed in iss.txt yet
-        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = ISSUER_KEY_NOT_LISTED)
-        DW<--Core: 409 | FailureReason = ISSUER_KEY_NOT_LISTED
-        DW->DW: Update issuance request status = ISSUER_KEY_NOT_LISTED\n(credential not issued)
-        Mini<--DW: Error (response of 1.2) | reason = ISSUER_KEY_NOT_LISTED
-        Mini-->User: Show error , credential not added (reason)
-        note over User,Mini #wheat: Issuance stops here , credential not added , sections 6 to 11 do not apply
-    else No reserved key left in the DID
-        note right of Core #wheat:[SPEC] no key is created during issuance , the agency creates a key (VCVP Core 02) and adds it to the DID (VCVP Core 40) in setup
-        note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.6 (MUST)  Trusted List update within 24 hours after a rotation
-        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = ISSUER_KEY_EXPIRED)
-
-        DW<--Core: Reject issuance request\nFailureReason = ISSUER_KEY_EXPIRED
-        DW->DW: Update issuance request status = ISSUER_KEY_EXPIRED\n(credential not issued)
-        Mini<--DW: Error (response of 1.2) | reason = ISSUER_KEY_EXPIRED
-        Mini-->User: Show error , credential not added (reason)
-        note over User,Mini #wheat: Issuance stops here , credential not added , sections 6 to 11 do not apply
-    end
-
-    note right of Core #wheat:[SPEC] old key = DEPRECATED , kept for verification , new key for new credentials | compromised key : Key-Compromise-sequence (VCVP Core 36)
-    note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 13.7.7.1 (informative)  old key stays in assertionMethod
-    Core->Core: Mark the old key as DEPRECATED (Keys.Status)
-
-else Key active
-    Core->Core: Continue issuance
-end
-
 note over Core,Engine #orange: 6. Create Digital Credential and Offer
 Core->Core: Use ClaimId from the request as the engine claim id\n(CredentialSchemas.Claims[].ClaimId is the claim id created by the engine)
 note right of Engine #wheat:[ENGINE RULE] the credential is created unsigned (state CREATED) , no status list index yet\nthe engine signs it when the wallet requests the credential (part 2 , VCVP Core 16)
 note right of Core #wheat:[SPEC] request : credentialSchemaId = CredentialSchemaId , issuer = IdentityId of the issuer , issuerKey = KeyId of the issuer key\nprotocol = OPENID4VCI_FINAL1 , claimValues [ claimId , path , value ]
+note right of Engine #wheat:[ENGINE RULE] the engine checks claimValues : claimId in the schema , required claims present , path matches claimId , value not empty , value matches the datatype
 Core->Engine: Create credential | POST /api/credential/v1
-Engine-->Core: { id } = CredentialId
+alt Claims rejected by the engine
+    Engine-->Core: 400 | BR_0003 / BR_0485 / BR_0204 / BR_0061
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = REQUEST_REJECTED)
+    DW<--Core: 400 | FailureReason = REQUEST_REJECTED
+    DW->DW: Update issuance request status = FailureReason\n(credential not issued)
+    Mini<--DW: Error (response of 1.2) | reason = FailureReason
+    Mini-->User: Show error , credential not added (reason)
+    note over User,Mini #wheat: Issuance stops here , credential not added
+else Credential created
+    Engine-->Core: { id } = CredentialId
+end
 
 note right of Core #wheat:[DATA STORE] Credentials table\nCredentialId = id from the engine (+ EngineId)\nCredentialSchemaId , IssuerOrganizationId , IssuerIdentityId , IssuerKeyId , CitizenHashId (hash of CitizenId , cannot be turned back , the raw CitizenId is not stored) , SyncDate\nExpiredAt (validity of the schema , CredentialSchemas.ValidityYears)
 Core->Core: [DATA STORE] Store credential in Credentials table
