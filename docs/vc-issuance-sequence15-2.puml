@@ -174,7 +174,7 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
     note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 10.5.1 (SHOULD)  short-lived WUA , revocation is the backup\ndraft-ietf-oauth-attestation-based-client-auth-12\n• 7.1 (MUST)  the client attestation is fresh per local policy
     note right of Core #wheat:[SPEC] WIA freshness policy = exp checked by the engine , DW Core sets exp = iat + 300 seconds , VCVP Core makes no extra iat check
     Core->Engine: Request access token with pre-authorized_code (from offer) | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/token\npre-authorized code + tx_code (when required) + OAuth-Client-Attestation , OAuth-Client-Attestation-PoP
-    Engine->Engine: Check both headers are present (OAuth-Client-Attestation , OAuth-Client-Attestation-PoP) , every schema sets requiresWalletInstanceAttestation
+    Engine->Engine: Check both headers are present (OAuth-Client-Attestation , OAuth-Client-Attestation-PoP) , every schema sets walletAttestation.requireInstanceAttestation
     Engine->Engine: Verify the WIA signature , the PoP signature and the PoP audience
     Engine->Engine: Check the WIA exp has not passed (60 seconds leeway)
 
