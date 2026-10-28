@@ -37,10 +37,13 @@ note right of DW #wheat:[SPEC] DW Core is a fully trusted part of the wallet , t
     DW->DW: [DATA STORE] Store the holder key challenge in DW database
     CoreApp<--DW: wallet unit id , challengeId , challenge , expiresAt
     CoreApp->CoreApp: Create the attestation key with the challenge and get the platform attestation\nAndroid Key Attestation (StrongBox) / iOS App Attest
+    note right of CoreApp #wheat:[SPEC] instance key = the key DW registers for this wallet unit\nAndroid : the attestation key | iOS : the device signing key
+    note right of CoreApp #wheat:[CONDITION] When this runs : iOS only
+    CoreApp->CoreApp: Create the device signing key in the Secure Enclave as the instance key
     note right of CoreApp #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.2 (MUST)  holder key in a WSCD\n• chapter 14 SC-20 (informative)  WSCD attestation before issuance
     CoreApp->CoreApp: Generate holder key pair with the DW challenge as attestation challenge (Secure Enclave / Android Keystore / StrongBox)\nAndroid : Key Attestation certificate chain of the holder key | iOS : App Attest assertion over the holder public key and the challenge
-    CoreApp->CoreApp: Sign the DW challenge with the holder private key\nSign the wallet attestation request proof with the instance key
-    note right of CoreApp #wheat:[SPEC] request : attestation , attestation key proof , device signing key proof , wallet attestation proof , signedChallenge , challengeId , publicKey\nholder key attestation : Android certificate chain / iOS App Attest assertion
+    CoreApp->CoreApp: Sign the DW challenge with the holder private key\nSign the attestation key proof with the attestation key\nSign the device signing key proof with the device signing key (iOS only)\nSign the wallet attestation request proof with the instance key
+    note right of CoreApp #wheat:[SPEC] request : attestation , attestation key proof , device signing key proof (iOS only) , wallet attestation proof , signedChallenge , challengeId , publicKey\nholder key attestation : Android certificate chain / iOS App Attest assertion
     CoreApp->DW: Activate wallet unit , get the wallet attestation and register the holder key + Token | POST /dw/v1/holder-keys/register (DW endpoint 02)
     DW->DW: Check app integrity\nAndroid : Google attestation CA , package name , signing certificate , security level | iOS : Apple App Attest root CA , bundleId
     note right of DW #FFCDD2:[PENDING] waiting for ETDA and the wallet team | Thai VC ARF 2.0 DRAFT 0\nissue : 12.2 (MUST) needs hardware key storage , the matching key_storage level is not published\nquestion : which key storage types are accepted (StrongBox , TEE , Secure Enclave) and the iOS evidence
