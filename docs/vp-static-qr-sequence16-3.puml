@@ -1,0 +1,107 @@
+@startuml
+title Digital Credential Presentation : static counter QR (one printed QR , a new verification request per scan) (SD-JWT VC , OpenID4VP 1.0 , Thai VC ARF 2.0 DRAFT 0)
+
+participant User
+participant "<color:#white>Document Wallet (Miniapp)</color>" as Mini #2E7D32
+participant "<color:#white>DW Core</color>" as DW #steelblue
+participant "Verifier Officer" as Officer
+participant "<color:#white>Verifier Toolkit</color>" as VSys #6A1B9A
+participant "<color:#white>VCVP Core</color>" as Core #3F51B5
+participant "<color:#white>one-core (Credential Engine)</color>" as Engine #chocolate
+participant "<color:#white>HSM (AWS KMS)</color>" as HSM #darkgoldenrod
+participant "<color:#white>ETDA Trusted List (CDN)</color>" as Trust #0B2E6B
+
+note right of Mini #wheat:[STANDARD] OpenID4VP 1.0\n• 14.1.2 (MUST)  every presentation bound to the nonce of its own request\n• 5.2 (MUST)  a fresh nonce for every request
+note right of Mini #wheat:[SPEC] OpenID4VP 1.0 has no static request , so the printed QR carries a fixed request_uri and every read of it returns a new request object (new nonce and state)
+note right of Engine #wheat:[ENGINE RULE] one proof request = one link , used by one holder once\na second holder on the same link is refused (400 invalid_request) and the proof stays ACCEPTED , so the engine link cannot be printed\nproof requests from the same proof schema and verifier DID have the same client_id and response_uri , nonce and state are new each time
+
+note over Officer,Trust #khaki: 0. Counter setup (once per counter , no proof request yet)
+note right of Core #wheat:[SPEC] Verification template , verifier identity , ETDA Trusted List cache and the verifier check are the same as VP part 0 (verifier setup)
+note right of Core #wheat:[SPEC] Trusted List not usable (TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE) : the calling step answers 503 Service Unavailable + Retry-After: 300\nnot the trust failure reason of that step , as in the ETDA Trusted List Load sequence
+Officer->VSys: Register a counter\nverification template , verifier identity , purpose , counter name
+VSys->Core: Create counter QR + Consumer-Key + Token | POST /api/verification-counter/v1 (VCVP Core 41)\nVerificationTemplateId , VerifierIdentityId , Purpose (Code , LegalBasis) , CounterName
+Core->Core: Check Consumer-Key and Token , validate caller authorization , otherwise 401 FailureReason = CALLER_NOT_AUTHENTICATED / 403 FailureReason = CALLER_NOT_AUTHORIZED\nCheck Purpose.Code is in the Purpose.Code list , otherwise 400 FailureReason = REQUEST_REJECTED
+note right of Core #wheat:[SPEC] not found 403 FailureReason = TEMPLATE_NOT_FOUND / VERIFIER_DID_NOT_FOUND , another organisation 403 FailureReason = CALLER_NOT_AUTHORIZED\nverifier not trusted 403 FailureReason = VERIFIER_NOT_TRUSTED (as VCVP Core 24)
+Core->Core: Resolve the verification template (VerificationTemplates) and the verifier identity (VerifierIdentityId) of the caller organisation\nLook up the verifier in the cached Verifier Trusted List (ver.txt , ETDA Trusted List Load) : service type = verifier (ServiceTypeIdentifier) , DID and key listed , status = active , purpose allowed
+note right of Core #wheat:[ENGINE RULE] client_id = decentralized_identifier:{verifier DID} is known before any proof request exists\nand equals the client_id of every request object the engine signs later for this verifier DID
+note right of Core #wheat:[SPEC] openid4vp://?client_id=decentralized_identifier:{verifier DID}\n&request_uri=https://{VCVP domain}/ssi/verification-counter/v1/{CounterId}/request-object
+Core->Core: Build the counter QR (no engine call)
+Core->Core: [DATA STORE] Store VerificationCounters table\nCounterId , OrganizationId , VerificationTemplateId , VerifierIdentityId , Purpose , LegalBasis , CounterName , Status = ACTIVE
+Core->Core: [AUDIT LOG] Write audit record of VCVP Core 41 : who created which counter\n(CounterId , VerificationTemplateId , VerifierIdentityId , Purpose , LegalBasis , TrustCheck)
+VSys<--Core: 200 | CounterId + CounterQrUrl
+Officer<--VSys: Print the QR and place it at the counter
+
+note over User,Trust #lightblue: 1. Holder scans the printed QR , DW Core reads the counter URL , VCVP Core creates a new verification request for this scan
+note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 13.4 (MUST NOT)  sensitive elements not routed through a server component that is not fully trusted
+note right of DW #wheat:[SPEC] DW Core is the server component of the wallet and is declared a fully trusted part of it (VCVP design decision)\nthe app calls only DW Core , DW Core makes every protocol call , the app signs and encrypts , DW Core checks the verifier (TC-1) for the wallet
+note right of Core #wheat:[SPEC] Protocol endpoints (/ssi) carry no Consumer-Key\nthe request object read writes VCVPAuditLog (Actor Channel = WALLET , no caller OrgCode)
+User->Mini: Scan the counter QR
+Mini->DW: Start verification + Token | POST /dw/v1/presentation/start (DW endpoint 12)\n(QR content)
+note right of DW #wheat:[STANDARD] OpenID4VP 1.0\n• 5.1 (MUST)  no request_uri_method , GET as in RFC 9101
+DW->DW: Validate Token → CitizenId\nParse openid4vp:// → client_id , request_uri
+DW->Core: Read request object from request_uri | GET /ssi/verification-counter/v1/{CounterId}/request-object (VCVP Core 42)
+note right of Core #wheat:[SPEC] limit scans per counter (VCVP policy)
+Core->Core: Read VerificationCounters table by CounterId (template , verifier identity , purpose) , Status = ACTIVE\nVerifier still listed as a verifier service (ServiceTypeIdentifier) and active in the cached Verifier Trusted List (ver.txt , ETDA Trusted List Load)
+alt Counter not found or inactive , verifier not trusted or scan limit reached
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 42 (FailureReason)
+    DW<--Core: 400 | invalid_request
+    Mini<--DW: Error (response of /dw/v1/presentation/start) | invalid_request
+    Mini-->User: Cannot verify at this counter
+else Counter active
+    Core->Engine: Create verification request | POST /api/proof-request/v1\nproofSchemaId , protocol , transport , verifier , verifierKey
+    Engine-->Core: { id } = VerificationId (state CREATED)
+    note right of Core #wheat:[STANDARD] PDPA B.E. 2562\n• section 39  record of processing activities , including the purpose
+    note right of Core #wheat:[SPEC] purpose and legal basis are recorded when the request is created and cannot be added later
+    Core->Core: [DATA STORE] Store Verifications table\nVerificationId = id from the engine , CounterId , Purpose , LegalBasis , Status = PENDING
+    Core->Engine: Generate verification link | POST /api/proof-request/v1/{id}/share\nbody { "params" : { "clientIdScheme" : "decentralized_identifier" } }
+    Engine-->Core: url , state
+    Core->Engine: Read request object | GET /ssi/openid4vp/final-1.0/{id}/client-request
+    note over Engine,HSM #f4cccc: 1.1 Verifier signs the request object (signing point 1)
+    Engine->HSM: Sign request object (JWS ES256) with the verifier key
+    HSM-->Engine: Signature
+    Engine-->Core: Request object JWT\nclient_id , nonce , state , response_uri , dcql_query
+    note right of Core #wheat:[ENGINE RULE] state in the request object is not the proof request id and the engine API does not return it\nthe wallet sees only the counter URL , so state is the key both sides know for this scan
+    Core->Core: [DATA STORE] Store state and nonce of the request object in Verifications table\nOfferUrl + ExpiresAt , Status = PENDING
+    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 42 : a new verification request for this scan\n(CounterId , Purpose , LegalBasis , TrustCheck , EngineCalls , Correlation.VerificationId)
+    DW<--Core: Request object (signed JWT)
+    DW->DW: Fetch the verifier DID document and the Verifier Trusted List (same as VP part 2 , section 1)
+    DW->DW: TC-1 as in VP part 2 , section 1.2 (DW Core checks the verifier for the wallet)\nnot passed : verifierTrust = NOT_TRUSTED and the flow stops as in that section
+    Mini<--DW: 200 (response of /dw/v1/presentation/start) | verifierTrust , client_id , state , nonce , response_uri ,\nclient_metadata.jwks + encrypted_response_enc_values_supported , dcql_query
+end
+note right of Engine #wheat:[ENGINE RULE] three holders scanning the same printed QR at the same time got three proof requests\neach was ACCEPTED with its own claim values , a later scan by the same holder made a fourth one\na scan that is never answered stays PENDING until the link expires (1 hour) then becomes INTERACTION_EXPIRED (tested on engine v1.88.1)
+
+ref over Mini,Trust : Same as VP part 2 , sections 2 to 8 , for this request\nstarts after the 200 of /dw/v1/presentation/start above , ends when VCVP Core 29 answers DW Core with 200\n(/dw/v1/presentation/info , consent , VP signed on the device , /dw/v1/presentation/submit , TC-2 , TC-3 , engine verification)\nDW Core and VCVP Core find this request by state , as in VP part 2
+
+note over User,Core #khaki: 2. Holder gets a counter code in the response of /dw/v1/presentation/submit (pairs the result with the person at the counter)
+note right of Core #wheat:[STANDARD] OpenID4VP 1.0\n• 14.2 (SHOULD)  cross-device flows add other mitigations against session fixation (the Response Code does not protect them)
+note right of Core #wheat:[SPEC] with one printed QR the officer cannot tell which result belongs to the person in front of the counter , the code pairs them
+DW->DW: The request came from a counter QR , DW Core gets the code before it answers /dw/v1/presentation/submit
+DW->Core: Get counter code | POST /api/verification-counter/v1/counter-code (VCVP Core 43)\nstate
+Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , otherwise 401 FailureReason = CALLER_NOT_AUTHENTICATED / 403 FailureReason = CALLER_NOT_AUTHORIZED
+Core->Core: Find Verifications table by state → VerificationId , CounterId , not found 403 FailureReason = VERIFICATION_NOT_FOUND
+Core->Engine: Get proof request | GET /api/proof-request/v1/{id}
+Engine-->Core: state
+alt state = ACCEPTED and TC-3 passed
+    Core->Core: Issue a 4 digit code unique among the open results of this counter , short validity
+    Core->Core: [DATA STORE] Store CounterCode and CounterCodeExpiresAt in Verifications table
+    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 43 : a counter code was issued (CounterId , Correlation.VerificationId , CounterCode)
+    DW<--Core: 200 | CounterCode
+    Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result , CounterCode
+    Mini-->User: Show the code ex : 4821
+else Not ACCEPTED
+    DW<--Core: 200 | Status (no code)
+    Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result , no code
+    Mini-->User: Sharing not completed
+end
+note right of Mini #FFCDD2:[PENDING] waiting for a VCVP team decision | OpenID4VP 1.0\nissue : a wallet that does not use DW Core cannot get the code , section 8.2 (OPTIONAL) lets the response endpoint return a redirect_uri (a page that could show the code) , engine support not tested\nquestion : support other wallets through redirect_uri , or keep the counter QR for wallets that use DW Core
+note right of Mini #wheat:[SPEC] to be discussed , phase 2 work : in phase 1 the counter QR serves wallets that use DW Core only
+
+note over User,Core #khaki: 3. Officer reads the result by the code
+User->Officer: Tell the code 4821
+Officer->VSys: Select or enter the code of this counter
+VSys->Core: Get counter result + Consumer-Key + Token | POST /api/verification-counter/v1/result (VCVP Core 44)\nCounterId , CounterCode
+Core->Core: Check Consumer-Key and Token , the counter belongs to the caller organisation , otherwise 401 FailureReason = CALLER_NOT_AUTHENTICATED / 403 FailureReason = CALLER_NOT_AUTHORIZED\nFind Verifications table by CounterId + CounterCode (not expired) → VerificationId , not found 403 FailureReason = COUNTER_CODE_INVALID
+ref over VSys,Engine : Same as VP part 2 "9.1 VCVP Core 32 answers each call" from Get proof request\n(organisation check , engine state , TC-3 result , audit record , claim values to the Verifier Toolkit)
+Officer<--VSys: Show result : verified , claims
+
+@enduml
