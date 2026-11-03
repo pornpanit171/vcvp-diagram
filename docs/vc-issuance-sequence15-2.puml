@@ -91,6 +91,7 @@ alt Holder accepts credential
     User->Mini: Accept
     opt Offer requires tx_code (credential type with RequiredLoA IAL2.1 or higher)
         note right of Mini #wheat:[CONDITION] only for credential types with RequiredLoA IAL2.1 or higher (schema with transactionCode NUMERIC , 6 digits) , IAL1 types skip the tx_code steps
+        note right of Mini #wheat:[SPEC] decided by ETDA after discussion (27 Oct 2026) : tx_code is optional\nthe issuing agency decides per credential type from the identity assurance assessment
         note right of Mini #wheat:[STANDARD] OpenID4VCI 1.0\n• 4.1.1 (RECOMMENDED)  show the tx_code description next to the input
         Mini-->User: Ask for the code sent by DW Core (second channel)\nlength and description from tx_code
         User->Mini: Enter tx_code
@@ -227,7 +228,7 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
         Core->Core: Look up the credential in Credentials table (CredentialId)
         alt Credential not found
             Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = CREDENTIAL_NOT_FOUND)
-            DW<--Core: 404 | FailureReason = CREDENTIAL_NOT_FOUND
+            DW<--Core: 403 | FailureReason = CREDENTIAL_NOT_FOUND
             DW->DW: Update issuance request status = FailureReason , answer the waiting app request with the error\n(VC not issued , credential not added)
         else Credential found
             Core->Core: Continue
@@ -519,34 +520,17 @@ DW<--Core: Credential Response (application/json) | credentials[].credential , n
         else Verification passed
             Mini<--DW: 200 (response of /dw/v1/issuance/credential) | credential (SD_JWT_VC + all disclosures)
 
-            note over CoreApp #lightblue: 9.1 Credential Storage Model (on device or cloud)
-            note right of CoreApp #FFCDD2:[PENDING] waiting for the Mobile App (Core ทางรัฐ) team\nissue : two storage modes are kept in the design\nquestion : which mode stays
+            note over CoreApp #lightblue: 9.1 Credential Storage on the Device
             Mini->CoreApp: Store the credential (SD_JWT_VC + all disclosures)
-            alt Storage mode = ON_DEVICE
-                note right of CoreApp #wheat:[SPEC] ON_DEVICE : the app keeps the full token , can present offline , the backend keeps references only
-                CoreApp->CoreApp: [DATA STORE] Store the full token (SD_JWT_VC + disclosures) in the on-device database
-                note right of CoreApp #wheat:[DATA STORE] on-device database\ncredentialId , credentialType , vct\nissuer DID / issuer display name\nschemaId\nvalidFrom / validUntil\nstatus reference ( uri + idx )\ndisplay metadata
-                CoreApp->CoreApp: [DATA STORE] Store credential metadata in on-device database
-                CoreApp->CoreApp: Bind credentialId to holder key reference\nBind credentialId to deviceId
-                CoreApp->CoreApp: Mark credential as available for presentation
-
-            else Storage mode = CLOUD (encrypted on the device before upload)
-                note right of CoreApp #wheat:[SPEC] CLOUD : the token is encrypted on the device , DW keeps ciphertext and metadata , presenting needs a network connection
-                note right of CoreApp #FFCDD2:[PENDING] waiting for the Mobile App (Core ทางรัฐ) team and the DW team\nissue : the data key cannot be recovered when the device is lost , metadata on DW is readable\nquestion : 1. recover the data key or issue again (suggested : issue again , cnf is bound to the old device key)\n2. which metadata fields stay readable (suggested : only what DW needs , for example status reference and expiry , the rest encrypted)
-                note right of CoreApp #wheat:[SPEC] data key protected by secure hardware (Secure Enclave / Android Keystore)
-                CoreApp->CoreApp: Encrypt the full token (SD_JWT_VC + disclosures) on the device
-                CoreApp->DW: Store encrypted credential + Token | POST /dw/v1/credentials (DW endpoint 10)\n(credentialId , encrypted token , credential metadata)
-                note right of DW #wheat:[DATA STORE] DW cloud storage\nCitizenId , deviceId , credentialId\nencrypted token (DW cannot decrypt it)\ncredential metadata : credentialType , vct , issuer DID , validFrom / validUntil , status reference ( uri + idx )
-                DW->DW: [DATA STORE] Store encrypted credential in DW cloud storage
-                CoreApp<--DW: 201 | cloud reference
-                CoreApp->CoreApp: [DATA STORE] Store credential metadata + cloud reference in on-device database
-                CoreApp->CoreApp: Bind credentialId to holder key reference\nBind credentialId to deviceId
-                CoreApp->CoreApp: Mark credential as available for presentation
-
-            end
+            note right of CoreApp #wheat:[SPEC] the app keeps the full token , can present offline , the backend keeps references only
+            CoreApp->CoreApp: [DATA STORE] Store the full token (SD_JWT_VC + disclosures) in the on-device database
+            note right of CoreApp #wheat:[DATA STORE] on-device database\ncredentialId , credentialType , vct\nissuer DID / issuer display name\nschemaId\nvalidFrom / validUntil\nstatus reference ( uri + idx )\ndisplay metadata
+            CoreApp->CoreApp: [DATA STORE] Store credential metadata in on-device database
+            CoreApp->CoreApp: Bind credentialId to holder key reference\nBind credentialId to deviceId
+            CoreApp->CoreApp: Mark credential as available for presentation
 
             note over CoreApp #lightblue: 9.2 Secure Local Storage and Access Policy
-            note right of CoreApp #wheat:[SPEC] app security baseline (set once in the app , not per credential , both storage modes)\ntarget : OWASP MASVS-STORAGE level L2 (the library provides only L1 , the gap must be implemented)\nsecure local storage : Android EncryptedSharedPreferences / Room encrypted DB , iOS Keychain\nenvelope encryption : KEK in secure hardware protects DEK on disk , DEK encrypts the data files\nfile protection : unreadable while the screen is locked , not only until first unlock after boot\naccess : biometric / PIN / device unlock\npersonal data : no readable claim copies without justification\nholder private key : Secure Enclave / Android Keystore / StrongBox , not exportable\nusage policy : holder confirmation before presentation , holder signing before VP submission
+            note right of CoreApp #wheat:[SPEC] app security baseline (set once in the app , not per credential)\ntarget : OWASP MASVS-STORAGE level L2 (the library provides only L1 , the gap must be implemented)\nsecure local storage : Android EncryptedSharedPreferences / Room encrypted DB , iOS Keychain\nenvelope encryption : KEK in secure hardware protects DEK on disk , DEK encrypts the data files\nfile protection : unreadable while the screen is locked , not only until first unlock after boot\naccess : biometric / PIN / device unlock\npersonal data : no readable claim copies without justification\nholder private key : Secure Enclave / Android Keystore / StrongBox , not exportable\nusage policy : holder confirmation before presentation , holder signing before VP submission
 CoreApp-->Mini: Credential stored | credentialId
 
             note over CoreApp,Engine #lightblue: 9.3 Wallet confirms receipt
@@ -570,7 +554,7 @@ CoreApp-->Mini: Credential stored | credentialId
             DW<--Core: 204
             Mini<--DW: 200 (response of /dw/v1/issuance/result) | result recorded
 
-            Mini-->User: Show the credential with a VC badge (claims from the stored VC)
+            Mini-->User: Show the credential (credential name , issuer , claim values from the stored VC)
         end
 
     end

@@ -146,7 +146,7 @@ Core->Core: Look up the credential type of OrgCode + ServiceCode (CredentialType
 alt Credential type or default schema not found
     note right of Core #wheat:[SPEC] the credential type and schema are created by the issuing agency , not during issuance
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 07 (FailureReason = CREDENTIAL_TYPE_NOT_FOUND or SCHEMA_NOT_FOUND , EngineCalls)
-    DW<--Core: 404 | FailureReason = CREDENTIAL_TYPE_NOT_FOUND or SCHEMA_NOT_FOUND
+    DW<--Core: 403 | FailureReason = CREDENTIAL_TYPE_NOT_FOUND or SCHEMA_NOT_FOUND
     DW->DW: Update issuance request status = FailureReason\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = FailureReason
     Mini-->User: Show error , credential not added (reason)
@@ -320,7 +320,7 @@ Core->Core: Select the issuer signing key
 
 alt Organisation / issuer DID not found , or more than one ACTIVE key
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08\n(FailureReason = ORGANISATION_NOT_FOUND / ISSUER_DID_NOT_FOUND / ISSUER_KEY_AMBIGUOUS)
-    DW<--Core: Reject issuance request\n422 ORGANISATION_NOT_FOUND / 409 ISSUER_DID_NOT_FOUND / 500 ISSUER_KEY_AMBIGUOUS (FailureReason)
+    DW<--Core: Reject issuance request\n403 ORGANISATION_NOT_FOUND / 403 ISSUER_DID_NOT_FOUND / 500 ISSUER_KEY_AMBIGUOUS (FailureReason)
     DW->DW: Update issuance request status = ISSUER_SETUP_NOT_FOUND\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = ISSUER_SETUP_NOT_FOUND
     Mini-->User: Show error , credential not added (reason)
@@ -420,6 +420,7 @@ note right of Core #wheat:[DATA STORE] Credentials table\nCredentialId = id from
 Core->Core: [DATA STORE] Store credential in Credentials table
 note right of Core #wheat:[STANDARD] OpenID4VCI 1.0\n• 4.1.1  Credential Offer parameters\nThai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.1.2 (example)  pre-authorized_code 5 minutes
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.3 (MUST)  tx_code from IAL2.1\n• appendix 8.1 D.2 (proposal)  tx_code recommended for IAL2.1 - 2.2\nOpenID4VCI 1.0\n• 3.5  tx_code by a second channel\n• 4.1.1  tx_code in the offer
+note right of Core #wheat:[SPEC] decided by ETDA after discussion (27 Oct 2026) : tx_code is optional\nthe issuing agency decides per credential type from the identity assurance assessment
 note right of Core #wheat:[CONDITION] When this runs : only for credential types with RequiredLoA IAL2.1 or higher\ntheir schema is created with transactionCode (NUMERIC , 6 digits) , IAL1 types have no transactionCode and skip the tx_code steps\nthe user must enter the code before the pre-authorized_code expires (300 seconds) ,\notherwise the user asks for a new code and the offer is renewed (part 2 section 8)
 Core->Engine: Create offer link | POST /api/credential/v1/{CredentialId}/share
 alt Offer link not created (engine error)
