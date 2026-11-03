@@ -59,7 +59,6 @@ note right of DW #wheat:[SPEC] DW Core is a fully trusted part of the wallet , t
         note right of DW #wheat:[SPEC] DW guidance : at least 10000 entries per list , published at DW endpoint 16
         DW->DW: [DATA STORE] Allocate a random unused idx for this wallet unit in a WIA status list of at least 10000 entries , no per-user uri\nkey_storage_status entry = the shared entry of the key storage type (Thai VC ARF 2.0 DRAFT 0 section 10.5.2 item (a))
         note right of DW #wheat:[STANDARD] EUDI ARF annex 2.02\n• WIAM_10 (SHALL)  at activation the wallet provider issues at least one WIA and one key attestation per keystore\nThai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.1.1  WUA listed under the one-time setup
-        note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : D.1.1 lists the WUA under setup but does not say the wallet provider issues a WIA and a key attestation at activation\nquestion : does the Thai profile require them at activation , as EUDI WIAM_10 does
         note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• Appendix E  Wallet Attestation (WIA)
         note right of DW #wheat:[SPEC] WIA content\nheader : x5c = wallet provider certificate (no iss)\ncnf = instance key of this app , client_status = { uri of DW endpoint 16 , idx }\nwallet_name , wallet_version , wallet_solution_certification_information , wallet_link
         DW->DW: Issue the WIA (wallet instance attestation) signed with the wallet provider key of DW

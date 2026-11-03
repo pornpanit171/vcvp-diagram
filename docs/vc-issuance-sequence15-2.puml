@@ -57,6 +57,7 @@ end
 note right of DW #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.4.3 (MUST)  TC-3 first round , the wallet checks the issuer\n• 9.10 (MUST)  reject at once when the local Trusted List check fails\n• appendix 8.1 D.1.4 (MUST)  check the issuer before authentication , stop at once on failure\n• 9.8 (MUST)  identity , key , status , validity period and scope checked by role\nOpenID4VCI 1.0\n• 13.5 (MUST)  the Wallet validates the Credential Issuer
 note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : D.1.4 says the wallet checks the issuer with the Trusted List "on the device"\nquestion : may DW Core (the server part of the wallet) check instead of the app
 note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : no field yet for the credential_issuer URL , issuer scope and status (12.1.4) , D.1.4 (MUST) rejects when the scope is unknown\nquestion : which fields will list them
+note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : the engine gives one credential_issuer URL per schema , so one issuer has many , ARF names the issuer by https (5.1 , D.1.10) and by DID (E.1.9)\nquestion : match the issuer by credential_issuer or by the did:web in OtherIds , if by URL list every URL in ServiceSupplyPoints (ETSI TS 119 602 6.6.7) and compare as identical (OpenID4VCI 1.0 12.2.4)
 DW->DW: Look up the issuer of credential_issuer in the cached Issuer Trusted List (iss.txt , ETDA Trusted List Load)\nservice type = issuer (ServiceTypeIdentifier) , organisation and service status = active , validity period current , credential type in the issuer scope
 alt Issuer not in the Trusted List / not active / credential type not in scope
     DW->DW: Update issuance request status = ISSUANCE_FAILED (reason = ISSUER_NOT_TRUSTED)\n(no nonce is requested , VC not issued , credential not added)
@@ -152,8 +153,7 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
         Core->Core: Continue
     end
     note right of Core #wheat:[CONDITION] DPoP is used only for credential types with RequiredLoA IAL2.3 or higher (schema RequireDpop = true) , lower types use Bearer
-    note right of Core #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : D.2 says "consider" DPoP at IAL2.3 , D.3 (MUST) requires it\nquestion : is DPoP required from IAL2.3 (follow D.3)
-    note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.3 (MUST)  DPoP jti not used again , from IAL2.3\n• appendix 8.1 D.1.6 (proposal)  random jti per request\nRFC 9449\n• 11.1  a used jti is declined in the accepted time window , keep only a hash
+    note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.3 (MUST)  DPoP jti not used again , from IAL2.3\n• appendix 8.1 D.2 (proposal)  DPoP considered at IAL2.3\n• appendix 8.1 D.1.6 (proposal)  random jti per request\nRFC 9449\n• 11.1  a used jti is declined in the accepted time window , keep only a hash
     note right of Core #B3E5FC:[WORKAROUND] VCVP Core keeps the DPoP proof jti because the engine accepts a used jti\nremove this check and DpopProofJtis table when the engine declines a used DPoP jti
     note right of Core #B3E5FC:[WORKAROUND] VCVP Core checks that DPoP is present because the engine has no setting to require it (a token request without DPoP gets Bearer)\nremove this check when the engine can require DPoP per schema
     Core->Core: Check the request has a DPoP header , when CredentialSchemas.RequireDpop = true
@@ -432,8 +432,7 @@ note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 8.3.1.2  invalid_nonce , 
         note right of Engine #wheat:[ENGINE RULE] the signed credential holds what the wallet checks in section 9\nheader kid = issuer did:web#key | payload iss = issuer did:web , vct , vct#integrity , nbf , exp , status.status_list { uri , idx } , cnf.jwk = holder public key\nno sub and no holder DID (KEY identifier)
         note right of Engine #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• minimal interoperability reference , revocation and status  every VC expires at validUntil (exp in SD-JWT VC)
         note right of Engine #wheat:[SPEC] every schema sets a validity , so the engine sets exp
-        note right of Engine #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : 8.4.3 says the verifier reads jti (a unique id of the credential) , D.1.11 for SD-JWT VC does not require it\nquestion : does every SD-JWT VC credential need a jti
-        note right of Engine #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : 5.1 and 5.2 show the issuer id (iss) as https:// , chapters 6 and 8.5 use did:web\nquestion : which form must iss use
+        note right of Engine #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.4.3  iss and jti checked by the format of the VC\n• appendix 8.1 D.1.11  SD-JWT VC check lists iss and vct , no jti\n• chapter 6 , 8.5  issuer DID as did:web\n• 5.1 , 5.2  iss as an https URI
         Engine->Engine: Build SD_JWT_VC and compute _sd digests of selectively disclosable claims
 
         note right of HSM #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.2 G-01 (MUST)  HSM FIPS Level 3\n• 12.2 (MUST)  key ceremony\n• chapter 14 SC-12 , SC-13 , SC-14 (informative)  HSM certificate , ceremony report , rotation plan
@@ -474,6 +473,7 @@ DW<--Core: Credential Response (application/json) | credentials[].credential , n
         Engine-->Core: credential type description (vct type metadata)
         DW<--Core: credential type description (vct type metadata)
         note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : 12.6 (MUST) checks the validity period of each issuer key , the Trusted List has no per-key period\nquestion : will the Trusted List list each issuer key with its start and end date
+        note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : on receiving the VC , D.1.11 [28] takes the key from the issuer JWKS with no Trusted List key check , 8.4.3 step 4 uses the DID Resolver , E.1.9 L4 and 12.6 (MUST NOT) use the Trusted List key\nquestion : which key source applies when the wallet receives the VC , and is the key always matched with the Trusted List
         note right of DW #wheat:[STANDARD] RFC 9901 (SD-JWT)\n• 7.1 , 7.2 (MUST)  verify the issuer signature and every disclosure\nThai VC ARF 2.0 DRAFT 0\n• 12.6 (MUST NOT)  no DID document key instead of the Trusted List key
         note right of DW #wheat:[SPEC] the DID before # in kid = iss , the key with id = kid is in the issuer DID document under assertionMethod and listed for the issuer in the Trusted List\nthen an SD-JWT library checks the signature and every disclosure , alg matches the key type (ES256 = EC P-256 , EdDSA = Ed25519) , not taken from the header alone (11.3 MUST)\nthe key comes from kid (8.4.3 step 4) and must be listed in the Trusted List (12.6) , not from JWKS (D.1.11 [28])
         DW->DW: Verify issuer signature (Check 2)
