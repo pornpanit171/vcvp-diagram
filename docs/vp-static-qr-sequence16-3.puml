@@ -19,16 +19,16 @@ note over Officer,Trust #khaki: 0. Counter setup (once per counter , no proof re
 note right of Core #wheat:[SPEC] Verification template , verifier identity , ETDA Trusted List cache and the verifier check are the same as VP part 0 (verifier setup)
 note right of Core #wheat:[SPEC] Trusted List not usable (TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE) : the calling step answers 503 Service Unavailable + Retry-After: 300\nnot the trust failure reason of that step , as in the ETDA Trusted List Load sequence
 Officer->VSys: Register a counter\nverification template , verifier identity , purpose , counter name
-VSys->Core: Create counter QR + Consumer-Key + Token | POST /api/verification-counter/v1 (VCVP Core 41)\nVerificationTemplateId , VerifierIdentityId , Purpose (Code , LegalBasis) , CounterName
+VSys->Core: Create counter QR + Consumer-Key + Token | POST /api/verification-counter/v1 (VCVP Core 41)\nverification_template_id , verifier_identity_id , purpose (code , legal_basis) , counter_name
 Core->Core: Check Consumer-Key and Token , validate caller authorization , otherwise 401 FailureReason = CALLER_NOT_AUTHENTICATED / 403 FailureReason = CALLER_NOT_AUTHORIZED\nCheck Purpose.Code is in the Purpose.Code list , otherwise 400 FailureReason = REQUEST_REJECTED
 note right of Core #wheat:[SPEC] not found 403 FailureReason = TEMPLATE_NOT_FOUND / VERIFIER_DID_NOT_FOUND , another organisation 403 FailureReason = CALLER_NOT_AUTHORIZED\nverifier not trusted 403 FailureReason = VERIFIER_NOT_TRUSTED (as VCVP Core 24)
 Core->Core: Resolve the verification template (VerificationTemplates) and the verifier identity (VerifierIdentityId) of the caller organisation\nLook up the verifier in the cached Verifier Trusted List (ver.txt , ETDA Trusted List Load) : service type = verifier (ServiceTypeIdentifier) , DID and key listed , status = active , purpose allowed
 note right of Core #wheat:[ENGINE RULE] client_id = decentralized_identifier:{verifier DID} is known before any proof request exists\nand equals the client_id of every request object the engine signs later for this verifier DID
-note right of Core #wheat:[SPEC] openid4vp://?client_id=decentralized_identifier:{verifier DID}\n&request_uri=https://{VCVP domain}/ssi/verification-counter/v1/{CounterId}/request-object
+note right of Core #wheat:[SPEC] openid4vp://?client_id=decentralized_identifier:{verifier DID}\n&request_uri=https://{VCVP domain}/ssi/verification-counter/v1/{counter_id}/request-object
 Core->Core: Build the counter QR (no engine call)
 Core->Core: [DATA STORE] Store VerificationCounters table\nCounterId , OrganizationId , VerificationTemplateId , VerifierIdentityId , Purpose , LegalBasis , CounterName , Status = ACTIVE
 Core->Core: [AUDIT LOG] Write audit record of VCVP Core 41 : who created which counter\n(CounterId , VerificationTemplateId , VerifierIdentityId , Purpose , LegalBasis , TrustCheck)
-VSys<--Core: 200 | CounterId + CounterQrUrl
+VSys<--Core: 200 | counter_id , counter_qr_url
 Officer<--VSys: Print the QR and place it at the counter
 
 note over User,Trust #lightblue: 1. Holder scans the printed QR , DW Core reads the counter URL , VCVP Core creates a new verification request for this scan
@@ -39,12 +39,12 @@ User->Mini: Scan the counter QR
 Mini->DW: Start verification + Token | POST /dw/v1/presentation/start (DW endpoint 12)\n(QR content)
 note right of DW #wheat:[STANDARD] OpenID4VP 1.0\n• 5.1 (MUST)  no request_uri_method , GET as in RFC 9101
 DW->DW: Validate Token → CitizenId\nParse openid4vp:// → client_id , request_uri
-DW->Core: Read request object from request_uri | GET /ssi/verification-counter/v1/{CounterId}/request-object (VCVP Core 42)
+DW->Core: Read request object from request_uri | GET /ssi/verification-counter/v1/{counter_id}/request-object (VCVP Core 42)
 note right of Core #wheat:[SPEC] limit scans per counter (VCVP policy)
 Core->Core: Read VerificationCounters table by CounterId (template , verifier identity , purpose) , Status = ACTIVE\nVerifier still listed as a verifier service (ServiceTypeIdentifier) and active in the cached Verifier Trusted List (ver.txt , ETDA Trusted List Load)
 alt Counter not found or inactive , verifier not trusted or scan limit reached
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 42 (FailureReason)
-    DW<--Core: 400 | invalid_request
+    DW<--Core: 400 | error = invalid_request , vcvp_failure_reason
     Mini<--DW: Error (response of /dw/v1/presentation/start) | invalid_request
     Mini-->User: Cannot verify at this counter
 else Counter active
@@ -76,7 +76,7 @@ note over User,Core #khaki: 2. Holder gets a counter code in the response of /dw
 note right of Core #wheat:[STANDARD] OpenID4VP 1.0\n• 14.2 (SHOULD)  cross-device flows add other mitigations against session fixation (the Response Code does not protect them)
 note right of Core #wheat:[SPEC] with one printed QR the officer cannot tell which result belongs to the person in front of the counter , the code pairs them
 DW->DW: The request came from a counter QR , DW Core gets the code before it answers /dw/v1/presentation/submit
-DW->Core: Get counter code | POST /api/verification-counter/v1/counter-code (VCVP Core 43)\nstate
+DW->Core: Get counter code | GET /api/verification-counter/v1/counter-code/{state} (VCVP Core 43)
 Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , otherwise 401 FailureReason = CALLER_NOT_AUTHENTICATED / 403 FailureReason = CALLER_NOT_AUTHORIZED
 Core->Core: Find Verifications table by state → VerificationId , CounterId , not found 403 FailureReason = VERIFICATION_NOT_FOUND
 Core->Engine: Get proof request | GET /api/proof-request/v1/{id}
@@ -85,11 +85,11 @@ alt state = ACCEPTED and TC-3 passed
     Core->Core: Issue a 4 digit code unique among the open results of this counter , short validity
     Core->Core: [DATA STORE] Store CounterCode and CounterCodeExpiresAt in Verifications table
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 43 : a counter code was issued (CounterId , Correlation.VerificationId , CounterCode)
-    DW<--Core: 200 | CounterCode
+    DW<--Core: 200 | counter_code
     Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result , CounterCode
     Mini-->User: Show the code ex : 4821
 else Not ACCEPTED
-    DW<--Core: 200 | Status (no code)
+    DW<--Core: 200 | status (no code)
     Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result , no code
     Mini-->User: Sharing not completed
 end
@@ -99,7 +99,7 @@ note right of Mini #wheat:[SPEC] to be discussed , phase 2 work : in phase 1 the
 note over User,Core #khaki: 3. Officer reads the result by the code
 User->Officer: Tell the code 4821
 Officer->VSys: Select or enter the code of this counter
-VSys->Core: Get counter result + Consumer-Key + Token | POST /api/verification-counter/v1/result (VCVP Core 44)\nCounterId , CounterCode
+VSys->Core: Get counter result + Consumer-Key + Token | GET /api/verification-counter/v1/{counter_id}/result/{counter_code} (VCVP Core 44)
 Core->Core: Check Consumer-Key and Token , the counter belongs to the caller organisation , otherwise 401 FailureReason = CALLER_NOT_AUTHENTICATED / 403 FailureReason = CALLER_NOT_AUTHORIZED\nFind Verifications table by CounterId + CounterCode (not expired) → VerificationId , not found 403 FailureReason = COUNTER_CODE_INVALID
 ref over VSys,Engine : Same as VP part 2 "9.1 VCVP Core 32 answers each call" from Get proof request\n(organisation check , engine state , TC-3 result , audit record , claim values to the Verifier Toolkit)
 Officer<--VSys: Show result : verified , claims

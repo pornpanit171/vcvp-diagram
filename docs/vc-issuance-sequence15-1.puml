@@ -120,19 +120,19 @@ note over DW,Engine #violet: 1.4 Get Schema Details
 note right of Core #wheat:[SPEC] two callers : DW Core (this flow) and agency systems (system to system) | steps marked caller channel = WALLET run only for DW Core
 note right of Core #wheat:[SPEC] VCVPAuditLog for every request , also those rejected at the Consumer-Key check (OrgCode and Actor empty) , kept 7 years
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.6 , 8.8 (MUST)  audit log at least 7 years
-DW->Core: Get the default schema of the requested credential type | POST /api/credential-schema/v1/get-by-organisation (VCVP Core 07)\nOrgCode , ServiceCode
+DW->Core: Get the default schema of the requested credential type | GET /api/credential-schema/v1/{org_code}/{service_code} (VCVP Core 07)
 Core->Core: Check Consumer-Key (DW Core central Consumer-Key) and its permission for this endpoint\ncaller channel = WALLET , ActorType = CITIZEN
 note right of Core #wheat:[STANDARD] RFC 9110\n• 15.5.2 (MUST)  401 when the request has no valid credentials , with WWW-Authenticate\n• 15.5.4  403 when the caller is known but not allowed
 alt Consumer-Key invalid or missing
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 07 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
-    DW<--Core: 401 + WWW-Authenticate | FailureReason = CALLER_NOT_AUTHENTICATED
+    DW<--Core: 401 + WWW-Authenticate | failure_reason = CALLER_NOT_AUTHENTICATED
     DW->DW: Update issuance request status = CALLER_NOT_AUTHENTICATED\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = CALLER_NOT_AUTHENTICATED
     Mini-->User: Show error , credential not added (reason)
     note over User,Mini #wheat: Issuance stops here , credential not added , sections 1.4.1 to 11 do not apply
 else Caller not authorized
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 07 (FailureReason = CALLER_NOT_AUTHORIZED)
-    DW<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED
+    DW<--Core: 403 | failure_reason = CALLER_NOT_AUTHORIZED
     DW->DW: Update issuance request status = CALLER_NOT_AUTHORIZED\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = CALLER_NOT_AUTHORIZED
     Mini-->User: Show error , credential not added (reason)
@@ -145,7 +145,7 @@ Core->Core: Look up the credential type of OrgCode + ServiceCode (CredentialType
 alt Credential type or default schema not found
     note right of Core #wheat:[SPEC] the credential type and schema are created by the issuing agency , not during issuance
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 07 (FailureReason = CREDENTIAL_TYPE_NOT_FOUND or SCHEMA_NOT_FOUND , EngineCalls)
-    DW<--Core: 403 | FailureReason = CREDENTIAL_TYPE_NOT_FOUND or SCHEMA_NOT_FOUND
+    DW<--Core: 403 | failure_reason = CREDENTIAL_TYPE_NOT_FOUND or SCHEMA_NOT_FOUND
     DW->DW: Update issuance request status = FailureReason\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = FailureReason
     Mini-->User: Show error , credential not added (reason)
@@ -158,7 +158,7 @@ else Schema found
 
     alt Wallet request not allowed by the agency
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 07 (FailureReason = WALLET_REQUEST_NOT_ALLOWED , EngineCalls)
-        DW<--Core: 403 | FailureReason = WALLET_REQUEST_NOT_ALLOWED
+        DW<--Core: 403 | failure_reason = WALLET_REQUEST_NOT_ALLOWED
         DW->DW: Update issuance request status = WALLET_REQUEST_NOT_ALLOWED\n(credential not issued)
         Mini<--DW: Error (response of 1.2) | reason = WALLET_REQUEST_NOT_ALLOWED
         Mini-->User: Show error , credential not added (reason)
@@ -173,7 +173,7 @@ note over DW,Engine #orange: 1.4.2 Read Schema Details
 Core->Engine: Get schema details | GET /api/credential-schema/v2/{CredentialSchemaId}
 Core<--Engine: 200 | schema details + Claims[] (ClaimId | Path | Name | Type | Required)
 Core->Core: [AUDIT LOG] Write audit record of VCVP Core 07 : who read which schema (EngineCalls)
-DW<--Core: 200 | CredentialSchemaId , RequiredLoA (of the credential type , CredentialTypes) , schema details + Claims[] (ClaimId | Path | NameEn | NameLocal | Type | Required)
+DW<--Core: 200 | credential_schema_id , required_loa , schema details , claims [ claim_id , path , name_en , name_local , type , required ]
 
 note over DW #lightblue: 1.5 Check Identity Assurance Level
 DW->DW: Take RequiredLoA of the credential type (section 1.4)
@@ -256,13 +256,13 @@ note right of Core #wheat:[SPEC] caller channel = WALLET , ActorType = CITIZEN ,
 Core->Core: Check Consumer-Key (DW Core central Consumer-Key) and caller authorization
 alt Consumer-Key invalid or missing
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
-    DW<--Core: 401 + WWW-Authenticate | FailureReason = CALLER_NOT_AUTHENTICATED
+    DW<--Core: 401 + WWW-Authenticate | failure_reason = CALLER_NOT_AUTHENTICATED
     DW->DW: Update issuance request status = FailureReason\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = FailureReason
     Mini-->User: Show error , credential not added (reason)
 else Caller not authorized
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08\n(FailureReason = CALLER_NOT_AUTHORIZED / WALLET_REQUEST_NOT_ALLOWED)
-    DW<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED / WALLET_REQUEST_NOT_ALLOWED
+    DW<--Core: 403 | failure_reason = CALLER_NOT_AUTHORIZED / WALLET_REQUEST_NOT_ALLOWED
     DW->DW: Update issuance request status = FailureReason\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = FailureReason
     Mini-->User: Show error , credential not added (reason)
@@ -274,19 +274,19 @@ note right of Core #wheat:[SPEC] CredentialSchemaId is still the default of its 
 Core->Core: Validate the request against the schema\n(default schema , issuer identity and key when sent)
 alt Schema is no longer the default of its credential type
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = SCHEMA_NOT_DEFAULT)
-    DW<--Core: 409 | FailureReason = SCHEMA_NOT_DEFAULT
+    DW<--Core: 409 | failure_reason = SCHEMA_NOT_DEFAULT
     DW->DW: Get the default schema again (section 1.4) and repeat sections 4 and 5
 else Issuer identity / key invalid
     note right of Core #wheat:[ERROR AUDIT] VCVPAuditLog\nFailureReason = REQUEST_REJECTED\nMessageCode , Message (HTTP status of the error)\nEventTime\nActor (OrgCode , ConsumerKey , Channel)\nCorrelation.RequestId
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = REQUEST_REJECTED / ISSUER_KEY_COMPROMISED)
-    DW<--Core: 400 | FailureReason = REQUEST_REJECTED / ISSUER_KEY_COMPROMISED
+    DW<--Core: 400 | failure_reason = REQUEST_REJECTED / ISSUER_KEY_COMPROMISED
     DW->DW: Update issuance request status = FailureReason\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = FailureReason
     Mini-->User: Show error , credential not added (reason)
 else Key sent by the caller has expired (Keys.ExpiryDate passed)
     Core->Core: Mark the key as DEPRECATED (Keys.Status)
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = ISSUER_KEY_EXPIRED)
-    DW<--Core: 409 | FailureReason = ISSUER_KEY_EXPIRED
+    DW<--Core: 409 | failure_reason = ISSUER_KEY_EXPIRED
     DW->DW: Update issuance request status = FailureReason\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = FailureReason
     Mini-->User: Show error , credential not added (reason)
@@ -298,7 +298,7 @@ Core->Core: Validate SyncDate against CredentialSchemas.MaxDataAgeDays
 alt Source data older than MaxDataAgeDays
     note right of Core #wheat:[ERROR AUDIT] VCVPAuditLog\nFailureReason = SOURCE_DATA_TOO_OLD\nMessageCode , Message (HTTP status of the error)\nEventTime\nActor (OrgCode , ConsumerKey , Channel)\nCorrelation.RequestId
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = SOURCE_DATA_TOO_OLD)
-    DW<--Core: 400 | FailureReason = SOURCE_DATA_TOO_OLD
+    DW<--Core: 400 | failure_reason = SOURCE_DATA_TOO_OLD
     DW->DW: Repeat sections 2 to 5 (fetch the applicant data again , new SyncDate)
 else Source data within MaxDataAgeDays
     Core->Core: Continue issuance
@@ -319,7 +319,7 @@ Core->Core: Select the issuer signing key
 
 alt Organisation / issuer DID not found , or more than one ACTIVE key
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08\n(FailureReason = ORGANISATION_NOT_FOUND / ISSUER_DID_NOT_FOUND / ISSUER_KEY_AMBIGUOUS)
-    DW<--Core: Reject issuance request\n403 ORGANISATION_NOT_FOUND / 403 ISSUER_DID_NOT_FOUND / 500 ISSUER_KEY_AMBIGUOUS (FailureReason)
+    DW<--Core: Reject issuance request\n403 ORGANISATION_NOT_FOUND / 403 ISSUER_DID_NOT_FOUND / 500 ISSUER_KEY_AMBIGUOUS (failure_reason)
     DW->DW: Update issuance request status = ISSUER_SETUP_NOT_FOUND\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = ISSUER_SETUP_NOT_FOUND
     Mini-->User: Show error , credential not added (reason)
@@ -346,7 +346,7 @@ alt No ACTIVE key / key expired (Keys.ExpiryDate passed) , key selected by VCVP 
         Core->Core: Switch issuerKey to the next reserved key in the DID\n(Keys.Status RESERVED → ACTIVE)
     else Reserved keys left , none listed in iss.txt yet
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = ISSUER_KEY_NOT_LISTED)
-        DW<--Core: 409 | FailureReason = ISSUER_KEY_NOT_LISTED
+        DW<--Core: 409 | failure_reason = ISSUER_KEY_NOT_LISTED
         DW->DW: Update issuance request status = ISSUER_KEY_NOT_LISTED\n(credential not issued)
         Mini<--DW: Error (response of 1.2) | reason = ISSUER_KEY_NOT_LISTED
         Mini-->User: Show error , credential not added (reason)
@@ -356,7 +356,7 @@ alt No ACTIVE key / key expired (Keys.ExpiryDate passed) , key selected by VCVP 
         note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.6 (MUST)  Trusted List update within 24 hours after a rotation
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = ISSUER_KEY_EXPIRED)
 
-        DW<--Core: 409 | FailureReason = ISSUER_KEY_EXPIRED
+        DW<--Core: 409 | failure_reason = ISSUER_KEY_EXPIRED
         DW->DW: Update issuance request status = ISSUER_KEY_EXPIRED\n(credential not issued)
         Mini<--DW: Error (response of 1.2) | reason = ISSUER_KEY_EXPIRED
         Mini-->User: Show error , credential not added (reason)
@@ -379,14 +379,14 @@ Core->Core: Validate the issuer passed every Trusted List check
 note right of Core #wheat:[SPEC] ISSUER_KEY_NOT_LISTED : the issuer DID is listed , the selected signing key is not listed yet\nthe agency waits until ETDA publishes the key (Thai VC ARF 2.0 DRAFT 0 section 12.6 , within 24 hours after the agency reports it)
 alt Issuer DID listed , the selected signing key not listed yet
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = ISSUER_KEY_NOT_LISTED , TrustCheck)
-    DW<--Core: 409 | FailureReason = ISSUER_KEY_NOT_LISTED
+    DW<--Core: 409 | failure_reason = ISSUER_KEY_NOT_LISTED
     DW->DW: Update issuance request status = ISSUER_KEY_NOT_LISTED\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = ISSUER_KEY_NOT_LISTED
     Mini-->User: Show error , credential not added (reason)
     note over User,Mini #wheat: Issuance stops here , credential not added , sections 6 to 11 do not apply
 else Trust validation failed
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = TRUST_FAILED , TrustCheck)
-    DW<--Core: 403 | FailureReason = TRUST_FAILED
+    DW<--Core: 403 | failure_reason = TRUST_FAILED
     DW->DW: Update issuance request status = TRUST_FAILED\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = TRUST_FAILED
     Mini-->User: Show error , credential not added (reason)
@@ -406,7 +406,7 @@ Core->Engine: Create credential | POST /api/credential/v1
 alt Claims rejected by the engine
     Engine-->Core: 400 | BR_0003 / BR_0485 / BR_0204 / BR_0061
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = REQUEST_REJECTED)
-    DW<--Core: 400 | FailureReason = REQUEST_REJECTED
+    DW<--Core: 400 | failure_reason = REQUEST_REJECTED
     DW->DW: Update issuance request status = FailureReason\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = FailureReason
     Mini-->User: Show error , credential not added (reason)
@@ -426,13 +426,13 @@ alt Offer link not created (engine error)
     Engine-->Core: Error
     Core->Core: [DATA STORE] Update Credentials table : Status = PENDING , OfferUrl and OfferExpiresAt stay null
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 08 : which credential was issued , to whom , by which issuer key (TrustCheck , EngineCalls , Correlation.CredentialId)
-    DW<--Core: 200 | CredentialId , OfferUrl = null , IssuerTrust (Result , CheckedAt , RegistryReference)
-    DW->Core: Request offer link | POST /api/credential/v1/share (VCVP Core 09) (CredentialId)
+    DW<--Core: 200 | credential_id , offer_url = null , issuer_trust (result , checked_at , registry_reference)
+    DW->Core: Request offer link | POST /api/credential/v1/share (VCVP Core 09) (credential_id)
     Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET , ActorType = CITIZEN\nValidate caller authorization
     Core->Engine: Create offer link | POST /api/credential/v1/{CredentialId}/share
     Engine-->Core: url , expiresAt , transactionCode (only when the schema has transactionCode)
     Core->Core: [DATA STORE] Update the same credential in Credentials table : set OfferUrl and OfferExpiresAt , Status = PENDING\n[AUDIT LOG] Write audit record of VCVP Core 09 : when the offer link was created for the credential (EngineCalls , Correlation.CredentialId)
-    DW<--Core: 200 | CredentialId + OfferUrl + ExpiresAt + TransactionCode (only when the schema has transactionCode)
+    DW<--Core: 200 | credential_id , offer_url , expires_at , transaction_code (only when the schema has transactionCode)
 else Offer link created
     note right of Engine #wheat:[ENGINE RULE] schema transactionCode = { type NUMERIC or ALPHANUMERIC , length 4 to 10 , description }\nshare returns transactionCode only for such a schema , every share returns a new code
     Engine-->Core: url = openid-credential-offer://?credential_offer_uri=...\nexpiresAt , transactionCode (only when the schema has transactionCode)
@@ -440,7 +440,7 @@ else Offer link created
     note right of Core #wheat:[DATA STORE] Credentials table\nCredentialId = id from the engine\nurl stored in OfferUrl (temporary)\nexpiresAt stored in OfferExpiresAt\nStatus = PENDING
     Core->Core: [DATA STORE] Store offer in Credentials table
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 08 : which credential was issued , to whom , by which issuer key (TrustCheck , EngineCalls , Correlation.CredentialId)
-    DW<--Core: 200 | CredentialId + OfferUrl + ExpiresAt + IssuerTrust (Result , CheckedAt , RegistryReference) + TransactionCode (only when the schema has transactionCode)
+    DW<--Core: 200 | credential_id , offer_url , expires_at , issuer_trust (result , checked_at , registry_reference) , transaction_code (only when the schema has transactionCode)
 end
 note right of Core #wheat:[ENGINE RULE] no webhook when an offer expires | INTERACTION_EXPIRED only after the task INTERACTION_EXPIRATION_CHECK runs
 note right of Core #wheat:[SPEC] scheduled job : PENDING and OfferExpiresAt passed , engine PENDING or INTERACTION_EXPIRED -> OFFER_EXPIRED , engine OFFERED -> keep PENDING\na renewed offer sets PENDING again | credential_accepted later still sets ACTIVE

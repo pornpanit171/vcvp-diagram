@@ -97,14 +97,15 @@ Core->Core: Look up the verifier in the Verifier Trusted List again (ver.txt , E
 alt Verifier no longer active in the Trusted List
     Core->Core: Update Verifications table Status = VERIFIER_NOT_TRUSTED\ndo not call the engine , let the request expire
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 27 (FailureReason = VERIFIER_NOT_TRUSTED , TrustCheck)
-    DW<--Core: 200 | verifierTrust = NOT_TRUSTED
+    note right of Core #wheat:[SPEC] verifier not trusted : verifier_trust.result = FAILED (result is PASSED or FAILED)
+    DW<--Core: 200 | verifier_trust
     Mini<--DW: Reject verification request
     Mini-->User: Verification cancelled\nVerifier is not trusted
     note over User,Mini #wheat: Flow stops here , the verifier sees VERIFIER_NOT_TRUSTED in section 9
 else Verifier still active
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 27 (TrustCheck)
     note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.6  consent screen shows the verifier legal_name from the Trusted List and the purpose\n• chapter 14 SC-08  the UI shows the name from the Trusted List only
-    DW<--Core: 200 | verifier name (TEName from the Trusted List) , OrgCode , Purpose (text) , LegalBasis , verifierTrust
+    DW<--Core: 200 | verifier_name_en , verifier_name_local , org_code , purpose (code , text , legal_basis) , verifier_trust
     Mini<--DW: verifier details
 
 end
@@ -167,7 +168,7 @@ note right of CoreApp #wheat:[SPEC] KB-JWT typ = kb+jwt , signed with the holder
 CoreApp->CoreApp: Keep only the disclosures of the consented claims\nAssemble [issuer SD-JWT] ~ [selected disclosures] ~ and compute sd_hash
 CoreApp->CoreApp: Sign KB-JWT with the holder key (Secure Enclave / Android Keystore / StrongBox)\nnonce , aud = client_id (full value with the decentralized_identifier: prefix) , iat , sd_hash
 CoreApp->CoreApp: Create a new WIA key for this presentation , sign the WIA request proof with it (jwk in the header)\nsign the bearer of the attestation request with the instance key
-note right of CoreApp #wheat:[STANDARD] draft-ietf-oauth-attestation-based-client-auth-12\n• 5.1 rule 3 (MUST)  the PoP is verified with the key in the cnf of the attestation\nOpenID4VCI 1.0\n• Appendix E  the sub of the Wallet Attestation is the client_id of the Wallet instance
+note right of CoreApp #wheat:[STANDARD] draft-ietf-oauth-attestation-based-client-auth-07\n• 5.2 rule 3 (MUST)  the PoP is verified with the key in the cnf of the attestation\nOpenID4VCI 1.0\n• Appendix E  the sub of the Wallet Attestation is the client_id of the Wallet instance
 note right of CoreApp #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : appendix 8.2 E.1.7 says WIA-PoP is signed with the "wallet instance key" and iss = "wallet instance ID"\nquestion : with a new WIA per presentation , is the WIA-PoP signed with the key in the WIA cnf and iss = the WIA sub
 CoreApp->CoreApp: Sign WIA-PoP with the new WIA key\niss = WIA sub (wallet client id) , aud = client_id , nonce , jti , iat , exp
 CoreApp->CoreApp: Build vp_token = { dcql credential id : [ issuer SD-JWT ~ disclosures ~ KB-JWT ] }
@@ -207,14 +208,14 @@ DW->Core: Submit presentation | POST /ssi/openid4vp/final-1.0/response (VCVP Cor
 
 note over Core,Trust #violet: 7.1 TC-2 : wallet provider check
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.9 step 0 (MUST)  a government wallet sends both WIA and WIA-PoP , one missing is rejected\nEUDI TS3 v1.5.2\n• WIA without iss , the wallet provider comes from the x5c certificate
-note right of Core #wheat:[SPEC] not found in the Wallet Provider Trusted List → 400 untrusted_wallet_provider\nWIA-PoP verified with WIA.cnf.jwk (iss = WIA.sub , aud = client_id , nonce matches)
+note right of Core #wheat:[SPEC] not found in the Wallet Provider Trusted List → 400 , error = invalid_request , vcvp_failure_reason = WALLET_ATTESTATION_FAILED\nWIA-PoP verified with WIA.cnf.jwk (iss = WIA.sub , aud = client_id , nonce matches)
 Core->Core: Find the request in Verifications table , read the nonce stored in section 1
 note right of Core #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : section 8.6 (MUST row) , 8.8 (MUST) , 12.1.4 (MUST) and appendix 8.2 E.1.9 : the verifier decides the wallet type (government / private) from trusted wallet provider data and rejects the VP if it cannot , the Trusted List has no such field yet\nquestion : which field gives the wallet type
 note right of Core #B3E5FC:[WORKAROUND] until ETDA publishes the field , VCVP Core treats the wallet as a government wallet (section 8.6 , 8.8 , 12.1.4 MUST reject)\nremove when the field is published
 Core->Core: Check the x5c signing certificate of the WIA against the Wallet Provider Trusted List (wp.txt , ETDA Trusted List Load) (L3) , service type = wallet provider (ServiceTypeIdentifier) , active , validity period current\nverify WIA , WIA iat within the last 120 seconds , verify WIA-PoP , check jti not used before (Verifications.WiaPopJti , unique index)
 alt WIA or WIA-PoP missing / wallet provider not trusted / signature or nonce invalid
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29 (FailureReason = WALLET_ATTESTATION_FAILED , Correlation.VerificationId)
-    DW<--Core: 400 untrusted_wallet_provider
+    DW<--Core: 400 | error = invalid_request , vcvp_failure_reason = WALLET_ATTESTATION_FAILED
     DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = VERIFIER_REJECTED , no claim values)
     Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = VERIFIER_REJECTED
     Mini-->User: Sharing failed
@@ -231,7 +232,7 @@ Core->HSM: Derive the shared secret | AWS KMS DeriveSharedSecret\n(verifier keyA
 HSM-->Core: shared secret (ECDH)
 Core->Core: Decrypt the response (Concat KDF , AES-GCM) and read each issuer JWT : iss , kid , vct , nbf , exp\nno claim values are kept
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.9 step 2 (MUST)  TC-3 , the issuer key is found in the Issuer Trusted List (L4)\n• 9.8 (MUST)  identity , key , status , validity period and scope checked by role\n• 8.4.3 step 2 (MUST)  find the Issuer service\nOpenID4VP 1.0\n• 8.6  checks required by the Verifier trust policy
-note right of Core #wheat:[SPEC] not found → 400 untrusted_issuer , the engine does not use the Trusted List
+note right of Core #wheat:[SPEC] not found → 400 , error = invalid_request , vcvp_failure_reason = ISSUER_NOT_TRUSTED , the engine does not use the Trusted List
 note right of Core #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : section 12.6 (MUST) and appendix 8.2 E.1.9 step 2 check the validity period of each issuer key and reject when it cannot be checked , the Thai profile has no per-key validity period yet , so this check waits for the profile\nquestion : will the Trusted List list each issuer key with its start and end date
 note right of Core #wheat:[SPEC] service type = issuer (ServiceTypeIdentifier) , organisation and service status = active , validity period current , vct in the issuer scope , validity window
 Core->Core: Look up the issuer key in the Issuer Trusted List (iss.txt , ETDA Trusted List Load) (L4)\nthe issuer DID is in OtherIds and the issuer key (kid) is in the keys listed for that service
@@ -248,28 +249,28 @@ Core->Core: Check iat of each KB-JWT : not older than 300 seconds and at most 60
 alt Issuer not trusted
     Core->Core: Update Verifications table Status = COMPLETED , Result = INVALID , Reason = ISSUER_NOT_TRUSTED\n(the response is not sent to the engine)
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29\n(FailureReason = ISSUER_NOT_TRUSTED , TrustCheck , no claim values)
-    DW<--Core: 400 untrusted_issuer
+    DW<--Core: 400 | error = invalid_request , vcvp_failure_reason = ISSUER_NOT_TRUSTED
     DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = ISSUER_NOT_TRUSTED , no claim values)
     Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = ISSUER_NOT_TRUSTED
     Mini-->User: Sharing failed\nIssuer not trusted
 else credential type does not match the request
     Core->Core: Update Verifications table Status = COMPLETED , Result = INVALID , Reason = PRESENTATION_TYPE_MISMATCH\n(the response is not sent to the engine)
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29\n(FailureReason = PRESENTATION_TYPE_MISMATCH , vct , no claim values)
-    DW<--Core: 400 credential_type_mismatch
+    DW<--Core: 400 | error = invalid_request , vcvp_failure_reason = PRESENTATION_TYPE_MISMATCH
     DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = PRESENTATION_TYPE_MISMATCH , no claim values)
     Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = PRESENTATION_TYPE_MISMATCH
     Mini-->User: Sharing failed\nThe credential does not match the request
 else credential status not VALID or status list not valid
     Core->Core: Update Verifications table Status = COMPLETED , Result = INVALID , Reason = CREDENTIAL_STATUS_INVALID\n(the response is not sent to the engine)
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29\n(FailureReason = CREDENTIAL_STATUS_INVALID , status_list.uri , idx , no claim values)
-    DW<--Core: 400 credential_status_invalid
+    DW<--Core: 400 | error = invalid_request , vcvp_failure_reason = CREDENTIAL_STATUS_INVALID
     DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = CREDENTIAL_STATUS_INVALID , no claim values)
     Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = CREDENTIAL_STATUS_INVALID
     Mini-->User: Sharing failed\nThe credential is revoked , suspended or its status cannot be checked
 else KB-JWT older than 300 seconds
     Core->Core: Update Verifications table Status = COMPLETED , Result = INVALID , Reason = PRESENTATION_EXPIRED\n(the response is not sent to the engine)
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29\n(FailureReason = PRESENTATION_EXPIRED , KB-JWT iat , no claim values)
-    DW<--Core: 400 invalid_request (presentation expired)
+    DW<--Core: 400 | error = invalid_request , vcvp_failure_reason = PRESENTATION_EXPIRED
     DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = PRESENTATION_EXPIRED , no claim values)
     Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = PRESENTATION_EXPIRED
     Mini-->User: Sharing failed\nThe sharing took too long , please share again
@@ -304,7 +305,7 @@ alt Engine verification failed (signature / KB-JWT / nonce / status / claims)
     note right of Engine #wheat:[ENGINE RULE] The engine answers 500 without a reason (revoked credential , wrong nonce)
     Engine-->Core: 500
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29 (EngineCalls , no claim values)
-    DW<--Core: 400 invalid_request
+    DW<--Core: 400 | error = invalid_request
     DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = VERIFIER_REJECTED , no claim values)
     Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = VERIFIER_REJECTED
     Mini-->User: Sharing failed
@@ -343,7 +344,7 @@ alt Option A : Webhook (ConsumerKeys[].CallbackUrl has a value)
     Core->Core: [DATA STORE] Keep the result in Verifications table (VerifiedAt , Status , Result) from the webhook status\nACCEPTED → Status = COMPLETED , Result = VALID | ERROR → Status = COMPLETED , Result = INVALID | REJECTED → Status = REJECTED
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 30 : the engine reported a new state (webhook status , Correlation.VerificationId)
     note right of Core #wheat:[SPEC] CallbackUrl of the Consumer-Key that created the request (AgentId = Verifications.CallerAgentId) , no claim values are sent
-    Core->VSys: Notify the Verifier Toolkit | POST ConsumerKeys[].CallbackUrl\nVerificationId , Status
+    Core->VSys: Notify the Verifier Toolkit | POST ConsumerKeys[].CallbackUrl\nverification_id , status
     VSys-->Core: 200
     VSys->VSys: Result is ready , call VCVP Core 32 once (section 9.1)
     end
@@ -354,7 +355,7 @@ else Option B : Polling (ConsumerKeys[].CallbackUrl has no value)
 end
 
 note over Officer,Core #khaki: 9.1 VCVP Core 32 answers each call (both options)
-VSys->Core: Get verification result + Consumer-Key + Token | GET /api/proof-request/v1/{VerificationId} (VCVP Core 32)\nVerificationId
+VSys->Core: Get verification result + Consumer-Key + Token | GET /api/proof-request/v1/{verification_id} (VCVP Core 32)
 Core->Core: Check Consumer-Key and Token , validate caller authorization , otherwise 401 FailureReason = CALLER_NOT_AUTHENTICATED / 403 FailureReason = CALLER_NOT_AUTHORIZED\nVerificationId not found 403 FailureReason = VERIFICATION_NOT_FOUND , another organisation 403 FailureReason = CALLER_NOT_AUTHORIZED
 Core->Core: Read Verifications table\nresult kept in section 7.2 , 8 or 9 , or the wallet side status (REJECTED / VERIFIER_NOT_TRUSTED) , a TC-1 failure is not sent to VCVP Core (the request expires)
 Core->Engine: Get proof request | GET /api/proof-request/v1/{id}
@@ -363,7 +364,7 @@ Core->Core: [DATA STORE] Keep the result in Verifications table when the engine 
 note right of Core #wheat:[ENGINE RULE] after ACCEPTED a second response with the same state is refused (400 invalid_request) and the proof stays ACCEPTED
 alt ACCEPTED and TC-3 passed
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 32\nPurpose , LegalBasis , result , EngineCalls , disclosed claim names only (no values)
-    VSys<--Core: 200 | Status = COMPLETED , Result = VALID , VerifiedAt , CredentialStatus = ACTIVE\nDisclosedClaims [ Path , NameEn , NameLocal , Value ]
+    VSys<--Core: 200 | status = COMPLETED , result = VALID , verified_at , credential_status = ACTIVE\ndisclosed_claims [ path , name_en , name_local , value ]
     note right of Core #wheat:[STANDARD] RFC 9901 (SD-JWT)\n• 10.2 (SHOULD NOT)  after verification the verifier does not store the issuer-signed JWT or the disclosures
     note right of Core #wheat:[SPEC] claim values are deleted once the Verifier Toolkit has them , later reads return the result and claim names without values
     Core->Engine: Delete the claim values | DELETE /api/proof-request/v1/{id}/claims
@@ -372,11 +373,11 @@ alt ACCEPTED and TC-3 passed
     Officer<--VSys: Show result : verified , claims
 else ERROR , or TC-3 failed
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 32 : the verification failed (result = FAILED , EngineCalls)
-    VSys<--Core: 200 | Status = COMPLETED , Result = INVALID (reason when known : ISSUER_NOT_TRUSTED / PRESENTATION_TYPE_MISMATCH / CREDENTIAL_STATUS_INVALID / PRESENTATION_EXPIRED)
+    VSys<--Core: 200 | status = COMPLETED , result = INVALID (reason when known : ISSUER_NOT_TRUSTED / PRESENTATION_TYPE_MISMATCH / CREDENTIAL_STATUS_INVALID / PRESENTATION_EXPIRED)
     Officer<--VSys: Show result : failed
 else Wallet side status kept in Verifications table , or engine state PENDING / INTERACTION_EXPIRED
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 32 (EngineCalls)
-    VSys<--Core: 200 | Status = PENDING / EXPIRED / wallet side reason
+    VSys<--Core: 200 | status = PENDING / EXPIRED / wallet side reason
     Officer<--VSys: Show status : waiting / not shared by the holder / verifier not trusted / expired
 end
 

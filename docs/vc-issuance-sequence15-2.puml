@@ -144,7 +144,7 @@ DW-->Core: Status List JWT (statuslist+jwt)
 Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet provider key , typ , sub , exp , cached up to ttl and at most 1 hour
     alt Wallet provider not in the Trusted List / not active / WIA-PoP jti used before / WIA revoked
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 14 (FailureReason = WALLET_ATTESTATION_FAILED , Correlation.CredentialId)
-        DW<--Core: 401 invalid_client
+        DW<--Core: 401 | error = invalid_client , vcvp_failure_reason = WALLET_ATTESTATION_FAILED
         DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , credential not added)
         Mini<--DW: Error (response of /dw/v1/issuance/token) | reason = WALLET_ATTESTATION_FAILED
         Mini-->User: Show error , credential not added (reason)
@@ -161,7 +161,7 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
     Core->Core: Look up the DPoP proof in DpopProofJtis table (JtiHash , Htu) , when the request has a DPoP header
     alt DPoP required but missing / DPoP jti used before
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 14 (FailureReason = DPOP_REQUIRED / DPOP_PROOF_REUSED , Correlation.CredentialId)
-        DW<--Core: 400 invalid_dpop_proof
+        DW<--Core: 400 | error = invalid_dpop_proof , vcvp_failure_reason = DPOP_REQUIRED / DPOP_PROOF_REUSED
         DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , credential not added)
         Mini<--DW: Error (response of /dw/v1/issuance/token) | reason = FailureReason
         Mini-->User: Show error , credential not added (reason)
@@ -172,33 +172,36 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
     end
     note right of Core #wheat:[STANDARD] OpenID4VCI 1.0\n• 13.10 (MUST)  no long-lived access token unless sender-constrained\nThai VC ARF 2.0 DRAFT 0\n• 8.6 (SHOULD)  short-lived access token
     note right of Engine #wheat:[ENGINE RULE] the access token is valid 300 seconds (tokenExpiresInSeconds) , Bearer or DPoP-bound when a DPoP proof is sent , no refresh_token is returned
-    note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 10.5.1 (SHOULD)  short-lived WUA , revocation is the backup\ndraft-ietf-oauth-attestation-based-client-auth-12\n• 7.1 (MUST)  the client attestation is fresh per local policy
-    note right of Core #wheat:[SPEC] WIA freshness policy = exp checked by the engine , DW Core sets exp = iat + 300 seconds , VCVP Core makes no extra iat check
+    note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 10.5.1 (SHOULD)  short-lived WUA , revocation is the backup\ndraft-ietf-oauth-attestation-based-client-auth-07\n• 9 step 11 (MUST)  fresh enough for the policies of the authorization server (iat or exp)\n• 6.2 (MUST)  use_fresh_attestation when not fresh enough\n• 5.1 (MUST)  reject when exp has passed
+    note right of Core #wheat:[SPEC] WIA freshness policy = exp checked by VCVP Core (60 seconds leeway) , DW Core sets exp = iat + 300 seconds , no extra iat check
+    note right of Core #B3E5FC:[WORKAROUND] VCVP Core checks the WIA exp because the engine answers 401 invalid_client , not use_fresh_attestation\nremove this check when the engine answers use_fresh_attestation
+    Core->Core: Check the WIA exp has not passed (60 seconds leeway)
+    alt WIA expired (exp passed)
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 14 (FailureReason = WALLET_ATTESTATION_FAILED , Correlation.CredentialId)
+        DW<--Core: 400 | error = use_fresh_attestation , vcvp_failure_reason = WALLET_ATTESTATION_FAILED
+        DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , credential not added)
+        Mini<--DW: Error (response of /dw/v1/issuance/token) | reason = WALLET_ATTESTATION_FAILED
+        Mini-->User: Show error , credential not added (reason)
+    else WIA fresh
+        Core->Core: Continue
+    end
     Core->Engine: Request access token with pre-authorized_code (from offer) | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/token\npre-authorized code + tx_code (when required) + OAuth-Client-Attestation , OAuth-Client-Attestation-PoP
     Engine->Engine: Check both headers are present (OAuth-Client-Attestation , OAuth-Client-Attestation-PoP) , every schema sets walletAttestation.requireInstanceAttestation
     Engine->Engine: Verify the WIA signature , the PoP signature and the PoP audience
-    Engine->Engine: Check the WIA exp has not passed (60 seconds leeway)
 
     alt tx_code wrong (offer requires tx_code)
         note right of Engine #wheat:[ENGINE RULE] after one wrong code the right code is refused (400 credential_request_denied)\nthe credential state is ERROR and share is refused (400 BR_0002) , a new credential and offer with a new code are needed\na request without the code gets 400 invalid_request and the right code still works after it
         Engine-->Core: 400 invalid_grant
         Core->Core: [DATA STORE] Update Credentials table : Status = ISSUANCE_FAILED
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 14 (FailureReason = TX_CODE_INVALID , Correlation.CredentialId)
-        DW<--Core: 400 | FailureReason = TX_CODE_INVALID
+        DW<--Core: 400 | error = invalid_grant , vcvp_failure_reason = TX_CODE_INVALID
         DW->DW: Update issuance request status = ISSUANCE_FAILED (reason = TX_CODE_INVALID)\n(VC not issued , credential not added)
         Mini<--DW: Error (response of /dw/v1/issuance/token) | reason = TX_CODE_INVALID
         Mini-->User: Show error : the code is not correct , request the credential again to get a new code
-    else WIA expired (exp passed)
-        Engine-->Core: error (WIA expired)
-        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 14 (FailureReason = WALLET_ATTESTATION_FAILED , Correlation.CredentialId)
-        DW<--Core: 401 invalid_client
-        DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , credential not added)
-        Mini<--DW: Error (response of /dw/v1/issuance/token) | reason = WALLET_ATTESTATION_FAILED
-        Mini-->User: Show error , credential not added (reason)
     else Pre-authorized code expired / invalid
         Engine-->Core: error
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 14 (FailureReason = PRE_AUTHORIZED_CODE_INVALID , Correlation.CredentialId)
-        DW<--Core: 400 | error = invalid_grant , FailureReason = PRE_AUTHORIZED_CODE_INVALID (offer expired)
+        DW<--Core: 400 | error = invalid_grant , vcvp_failure_reason = PRE_AUTHORIZED_CODE_INVALID (offer expired)
         note right of DW #wheat:[ENGINE RULE] c_nonce and the PoP audience (credential_issuer) are not bound to the offer , so the same request continues with a renewed offer
         note right of DW #wheat:[ENGINE RULE] c_nonce is valid 300 seconds , the c_nonce from response of 1.2 has expired\nthe key attestation needs a new c_nonce , so the app signs the section 8 proofs again
         DW->DW: Update issuance request status = OFFER_EXPIRED (the offer is renewed at the next request)
@@ -215,12 +218,12 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
             Mini->Mini: Repeat section 8 with the new c_nonce , it calls /dw/v1/issuance/token (DW endpoint 05) again
         end
         note right of DW #wheat:[SPEC] next request (DW endpoint 18 , or DW endpoint 05 from the repeated section 8) : DW Core renews the offer first
-        DW->Core: Request new offer link | POST /api/credential/v1/share (VCVP Core 09) (CredentialId stored in the DW issuance request)
+        DW->Core: Request new offer link | POST /api/credential/v1/share (VCVP Core 09) (credential_id)
         Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET , ActorType = CITIZEN
         note right of Core #wheat:[STANDARD] RFC 9110\n• 15.5.2 (MUST)  401 when the request has no valid credentials , with WWW-Authenticate\n• 15.5.4  403 when the caller is known but not allowed
         alt Consumer-Key invalid or missing
             Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
-            DW<--Core: 401 + WWW-Authenticate | FailureReason = CALLER_NOT_AUTHENTICATED
+            DW<--Core: 401 + WWW-Authenticate | failure_reason = CALLER_NOT_AUTHENTICATED
             DW->DW: Update issuance request status = FailureReason , answer the waiting app request with the error\n(VC not issued , credential not added)
         else Consumer-Key valid
             Core->Core: Continue
@@ -228,7 +231,7 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
         Core->Core: Look up the credential in Credentials table (CredentialId)
         alt Credential not found
             Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = CREDENTIAL_NOT_FOUND)
-            DW<--Core: 403 | FailureReason = CREDENTIAL_NOT_FOUND
+            DW<--Core: 403 | failure_reason = CREDENTIAL_NOT_FOUND
             DW->DW: Update issuance request status = FailureReason , answer the waiting app request with the error\n(VC not issued , credential not added)
         else Credential found
             Core->Core: Continue
@@ -237,7 +240,7 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
         Core->Core: Check caller authorization
         alt Caller not authorized
             Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = WALLET_REQUEST_NOT_ALLOWED / CALLER_NOT_AUTHORIZED , Correlation.CredentialId)
-            DW<--Core: 403 | FailureReason = WALLET_REQUEST_NOT_ALLOWED / CALLER_NOT_AUTHORIZED
+            DW<--Core: 403 | failure_reason = WALLET_REQUEST_NOT_ALLOWED / CALLER_NOT_AUTHORIZED
             DW->DW: Update issuance request status = FailureReason , answer the waiting app request with the error\n(VC not issued , credential not added)
         else Caller authorized
             Core->Core: Continue
@@ -246,7 +249,7 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
         Core->Core: Check credential status is PENDING or OFFER_EXPIRED (Credentials.Status)
         alt Credential status not PENDING / OFFER_EXPIRED
             Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = CREDENTIAL_STATE_INVALID , Correlation.CredentialId)
-            DW<--Core: 409 | FailureReason = CREDENTIAL_STATE_INVALID
+            DW<--Core: 409 | failure_reason = CREDENTIAL_STATE_INVALID
             DW->DW: Update issuance request status = FailureReason , answer the waiting app request with the error\n(VC not issued , credential not added)
         else Status PENDING / OFFER_EXPIRED
             Core->Core: Continue to renew offer link
@@ -257,7 +260,7 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
             Engine-->Core: url = openid-credential-offer://?credential_offer_uri=...\nexpiresAt , transactionCode (only when the schema has transactionCode)
             Core->Core: [DATA STORE] Update the same credential in Credentials table : replace OfferUrl and OfferExpiresAt with the new offer , Status = PENDING
             Core->Core: [AUDIT LOG] Write audit record of VCVP Core 09 : a new offer link was created for the credential (renew , EngineCalls , Correlation.CredentialId)
-            DW<--Core: 200 | CredentialId + OfferUrl + ExpiresAt + TransactionCode (only when the schema has transactionCode)
+            DW<--Core: 200 | credential_id , offer_url , expires_at , transaction_code (only when the schema has transactionCode)
             opt Response has TransactionCode (credential type with RequiredLoA IAL2.1 or higher)
                 note right of DW #FFCDD2:[PENDING] waiting for the DW team\nissue : how the tx_code reaches the user is not decided (OpenID4VCI 3.5 : not the offer channel)\nquestion : which channels (SMS , e-mail) , where the verified contact comes from , what if the user has none
                 note right of DW #wheat:[SPEC] the code is not logged and not stored after it is sent , the message says the new code replaces the previous one
@@ -266,7 +269,7 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
         else State not CREATED / PENDING / INTERACTION_EXPIRED
             Engine-->Core: 400 BR_0002
             Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 09 (FailureReason = OFFER_NOT_RENEWABLE , EngineCalls , Correlation.CredentialId)
-            DW<--Core: 409 | FailureReason = OFFER_NOT_RENEWABLE
+            DW<--Core: 409 | failure_reason = OFFER_NOT_RENEWABLE
             DW->DW: Repeat part 1 sections 5 and 6 (VCVP Core 08)\nto create a new credential and offer
         end
         
@@ -332,7 +335,7 @@ Core->Core: [DATA STORE] Keep the key attestation status reference (key_storage_
     alt Key attestation not from a trusted wallet provider / wrong nonce / key not in hardware
         Core->Core: [DATA STORE] Update Credentials table : Status = ISSUANCE_FAILED
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 16 (FailureReason = KEY_ATTESTATION_FAILED , Correlation.CredentialId)
-        DW<--Core: 400 | error = invalid_proof , FailureReason = KEY_ATTESTATION_FAILED
+        DW<--Core: 400 | error = invalid_proof , vcvp_failure_reason = KEY_ATTESTATION_FAILED
         DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , credential not added)
         Mini<--DW: Error (response of /dw/v1/issuance/credential) | reason = KEY_ATTESTATION_FAILED
         Mini-->User: Show error , credential not added (reason)
@@ -346,7 +349,7 @@ Core->Core: [DATA STORE] Keep the key attestation status reference (key_storage_
     Core->Core: Look up the DPoP proof in DpopProofJtis table (JtiHash , Htu) , when the request has a DPoP header
     alt DPoP jti used before
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 16 (FailureReason = DPOP_PROOF_REUSED , Correlation.CredentialId)
-        DW<--Core: 400 invalid_dpop_proof
+        DW<--Core: 400 | error = invalid_dpop_proof , vcvp_failure_reason = DPOP_PROOF_REUSED
         DW->DW: Update issuance request status = ISSUANCE_FAILED\n(VC not issued , credential not added)
         Mini<--DW: Error (response of /dw/v1/issuance/credential) | reason = DPOP_PROOF_REUSED
         Mini-->User: Show error , credential not added (reason)
@@ -365,7 +368,7 @@ Core->Core: [DATA STORE] Keep the key attestation status reference (key_storage_
 
     alt c_nonce expired (invalid_nonce)
         Engine-->Core: 400 invalid_nonce
-        DW<--Core: 400 invalid_nonce
+        DW<--Core: 400 | error = invalid_nonce
 note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 8.3.1.2  invalid_nonce , the wallet gets a new c_nonce (section 7)
         DW->Core: Request nonce | POST nonce_endpoint = /ssi/openid4vci/final-1.0/{protocolId}/nonce (VCVP Core 15)
         DW<--Core: c_nonce
@@ -375,7 +378,7 @@ note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 8.3.1.2  invalid_nonce , 
     else Access token expired (invalid_token , the token lives 300 seconds)
         Engine-->Core: 400 invalid_token
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 16 (FailureReason = ACCESS_TOKEN_EXPIRED , Correlation.CredentialId)
-        DW<--Core: 400 invalid_token
+        DW<--Core: 400 | error = invalid_token , vcvp_failure_reason = ACCESS_TOKEN_EXPIRED
         note right of DW #wheat:[ENGINE RULE] the credential is OFFERED in the engine and cannot be offered again\nc_nonce is valid 300 seconds , the c_nonce from response of 1.2 has expired
         DW->DW: Update issuance request status = OFFER_EXPIRED (a new credential is made at the next request)
         alt Offer has tx_code
@@ -567,11 +570,11 @@ else Holder rejects credential
     Core->Core: Check Consumer-Key (DW Core central Consumer-Key) and caller authorization
     alt Consumer-Key invalid or missing
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 20 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
-        DW<--Core: 401 + WWW-Authenticate | FailureReason = CALLER_NOT_AUTHENTICATED
+        DW<--Core: 401 + WWW-Authenticate | failure_reason = CALLER_NOT_AUTHENTICATED
         note over DW,Core #wheat: Reject not recorded in VCVP , the offer still expires by itself
     else Caller not authorized
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 20 (FailureReason = CALLER_NOT_AUTHORIZED)
-        DW<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED
+        DW<--Core: 403 | failure_reason = CALLER_NOT_AUTHORIZED
         note over DW,Core #wheat: Reject not recorded in VCVP , the offer still expires by itself
     else Caller authorized
 

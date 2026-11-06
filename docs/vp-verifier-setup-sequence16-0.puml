@@ -34,20 +34,20 @@ note right of Core #wheat:[SPEC] the catalogue lists the schemas that issuers on
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.8 (MUST)  scope of an issuer = VC types and claims it may issue , checked from the Trusted List
 note right of Core #wheat:[SPEC] decided by ETDA after discussion : the VC types of each issuer in the Trusted List are phase 2 work , the catalogue of VCVP is used
 Officer->VSys: Search the published schemas (issuer , credential type)
-VSys->Core: List published schemas + Consumer-Key + Token | GET /api/credential-schema/v1/published (VCVP Core 46)\nIssuerOrgCode (optional) , CredentialTypeName (optional)
+VSys->Core: List published schemas + Consumer-Key + Token | GET /api/credential-schema/v1/published (VCVP Core 46)\nissuer_org_code (optional) , credential_type_name (optional)
 Core->Core: Check Consumer-Key and Token , caller channel , ActorType = OFFICER\nvalidate caller authorization
 alt Consumer-Key or Token invalid or missing
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 46 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
-    VSys<--Core: 401 + WWW-Authenticate | FailureReason = CALLER_NOT_AUTHENTICATED
+    VSys<--Core: 401 + WWW-Authenticate | failure_reason = CALLER_NOT_AUTHENTICATED
     Officer<--VSys: Show error , no schemas shown
 else Caller not authorized
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 46 (FailureReason = CALLER_NOT_AUTHORIZED)
-    VSys<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED
+    VSys<--Core: 403 | failure_reason = CALLER_NOT_AUTHORIZED
     Officer<--VSys: Show error , no schemas shown
 else Caller authorized
     Core->Core: Read CredentialSchemas (Status = ACTIVE) of the issuer organisations , filtered by the query , no match gives an empty list\nnames of the credential type from CredentialTypes , OrgCode and name of the issuer from Organizations
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 46 : who searched the catalogue , with the query
-    VSys<--Core: 200 | Items [ OrgCode , OrganizationName , CredentialTypeId , NameEn , NameLocal ,\nCredentialSchemaId , Formats [ Format , EcosystemSchemaId ] ]
+    VSys<--Core: 200 | items [ org_code , organization_name , credential_type_id , name_en , name_local ,\ncredential_schema_id , formats [ format , ecosystem_schema_id ] ]
     Officer<--VSys: Published schemas of the issuers
 end
 Officer->VSys: Choose one schema to verify (CredentialSchemaId)
@@ -56,16 +56,16 @@ note over Officer,Engine #khaki: 0.2.1 Import the published schema of the issuer
 note right of Core #wheat:[SPEC] VCVPAuditLog for every request , also those rejected at the Consumer-Key check (OrgCode and Actor empty) , kept 7 years
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.6 , 8.8 (MUST)  audit log at least 7 years
 Officer->VSys: Import the chosen schema
-VSys->Core: Import schema + Consumer-Key + Token | POST /api/credential-schema/v1/import (VCVP Core 22)\nOrgCode , SourceCredentialSchemaId
+VSys->Core: Import schema + Consumer-Key + Token | POST /api/credential-schema/v1/import (VCVP Core 22)\norg_code , source_credential_schema_id
 Core->Core: Check Consumer-Key and Token , caller channel , ActorType = OFFICER\nvalidate caller authorization
 note right of Core #wheat:[STANDARD] RFC 9110\n• 15.5.2 (MUST)  401 when the request has no valid credentials , with WWW-Authenticate\n• 15.5.4  403 when the caller is known but not allowed
 alt Consumer-Key or Token invalid or missing
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 22 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
-    VSys<--Core: 401 + WWW-Authenticate | FailureReason = CALLER_NOT_AUTHENTICATED
+    VSys<--Core: 401 + WWW-Authenticate | failure_reason = CALLER_NOT_AUTHENTICATED
     Officer<--VSys: Show error , schema not imported
 else Caller not authorized
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 22 (FailureReason = CALLER_NOT_AUTHORIZED)
-    VSys<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED
+    VSys<--Core: 403 | failure_reason = CALLER_NOT_AUTHORIZED
     Officer<--VSys: Show error , schema not imported
 else Caller authorized
     Core->Core: Map OrgCode to OrganizationId (Organizations)
@@ -81,45 +81,45 @@ else Caller authorized
     Engine-->Core: claims[] with id + key (new claim ids , different from the issuer copy)
     Core->Core: [DATA STORE] Store ImportedCredentialSchemas table (Claims[].ClaimId , Source , Formats[].EcosystemSchemaId = vct , Formats[].TypeMetadataIntegrity)
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 22 : who imported which issuer schema (EngineCalls)
-    VSys<--Core: 200 | ImportedCredentialSchemaId
+    VSys<--Core: 200 | imported_credential_schema_id
     Officer<--VSys: Schema imported
 end
 
 note over Officer,Engine #khaki: 0.2.2 Read the imported schema (claims to choose)
 Officer->VSys: Open the imported schema to choose the claims to request
-VSys->Core: Get imported schema claims + Consumer-Key + Token | GET /api/credential-schema/v1/{ImportedCredentialSchemaId} (VCVP Core 45)
+VSys->Core: Get imported schema claims + Consumer-Key + Token | GET /api/credential-schema/v1/{imported_credential_schema_id} (VCVP Core 45)
 Core->Core: Check Consumer-Key and Token , validate caller authorization\nFind ImportedCredentialSchemaId in ImportedCredentialSchemas table (Status = ACTIVE) , owned by the caller organisation
 alt Consumer-Key or Token invalid or missing
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 45 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
-    VSys<--Core: 401 + WWW-Authenticate | FailureReason = CALLER_NOT_AUTHENTICATED
+    VSys<--Core: 401 + WWW-Authenticate | failure_reason = CALLER_NOT_AUTHENTICATED
     Officer<--VSys: Show error , claims not shown
 else Caller organisation not ACTIVE or the schema belongs to another organisation
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 45 (FailureReason = CALLER_NOT_AUTHORIZED)
-    VSys<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED
+    VSys<--Core: 403 | failure_reason = CALLER_NOT_AUTHORIZED
     Officer<--VSys: Show error , claims not shown
 else Imported schema not found or not ACTIVE
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 45 (FailureReason = SCHEMA_NOT_FOUND)
-    VSys<--Core: 403 | FailureReason = SCHEMA_NOT_FOUND
+    VSys<--Core: 403 | failure_reason = SCHEMA_NOT_FOUND
     Officer<--VSys: Show error , claims not shown
 else Schema found
     Core->Engine: Get imported schema | GET /api/credential-schema/v2/{id}
     Engine-->Core: schema (claims[] key , datatype , required , translations , mappings)
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 45 : who read which imported schema (EngineCalls)
-    VSys<--Core: 200 | ImportedCredentialSchemaId , Source , Formats , Claims (Path , NameEn , NameLocal , Type , Required)
+    VSys<--Core: 200 | imported_credential_schema_id , source , formats , claims (path , name_en , name_local , type , required)
     Officer<--VSys: Claims that can be requested
 end
 
 note over Officer,Engine #khaki: 0.3 Define what to request (verification template)
 Officer->VSys: Define verification template (claims to request , chosen from the result of VCVP Core 45)
-VSys->Core: Create verification template + Consumer-Key + Token | POST /api/proof-schema/v1 (VCVP Core 23)\nInputs [ ImportedCredentialSchemaId , Claims ex : LicenseNumber , FullNameTH ]
+VSys->Core: Create verification template + Consumer-Key + Token | POST /api/proof-schema/v1 (VCVP Core 23)\ninputs [ imported_credential_schema_id , claims ]
 Core->Core: Check Consumer-Key and Token , validate caller authorization
 alt Consumer-Key or Token invalid or missing
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 23 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
-    VSys<--Core: 401 + WWW-Authenticate | FailureReason = CALLER_NOT_AUTHENTICATED
+    VSys<--Core: 401 + WWW-Authenticate | failure_reason = CALLER_NOT_AUTHENTICATED
     Officer<--VSys: Show error , template not created
 else Caller not authorized
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 23 (FailureReason = CALLER_NOT_AUTHORIZED)
-    VSys<--Core: 403 | FailureReason = CALLER_NOT_AUTHORIZED
+    VSys<--Core: 403 | failure_reason = CALLER_NOT_AUTHORIZED
     Officer<--VSys: Show error , template not created
 else Caller authorized
     Core->Core: Find ImportedCredentialSchemaId in ImportedCredentialSchemas table (Status = ACTIVE) , owned by the caller organisation\nnot found 403 FailureReason = SCHEMA_NOT_FOUND , another organisation 403 FailureReason = CALLER_NOT_AUTHORIZED
@@ -136,7 +136,7 @@ else Caller authorized
     Engine-->Core: id
     Core->Core: [DATA STORE] Store VerificationTemplates table (VerificationTemplateId = id from the engine)
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 23 : who created which verification template (EngineCalls)
-    VSys<--Core: 200 | VerificationTemplateId
+    VSys<--Core: 200 | verification_template_id
     Officer<--VSys: Verification template ready
 end
 
