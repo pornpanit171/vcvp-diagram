@@ -291,7 +291,7 @@ note right of Engine #wheat:[SPEC] VCVP Core checks the issuer in section 7.2 be
 Engine->Engine: Resolve the issuer DID , verify the issuer JWS and every disclosure against _sd
 Engine->Engine: Check the claims of the proof schema are present (DCQL)
 note right of Engine #wheat:[STANDARD] Token Status List draft-21\n• 5.1 (MUST)  typ and sub\n• 8.3 (MUST)  exp checked when present , idx out of range rejected\nThai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.9 step 3  unknown status values are rejected\n• 8.4.4 (MUST)  fail closed
-note right of Engine #wheat:[ENGINE RULE] the engine checks only the status list signature and the value at idx , not typ , sub , exp or the bits (tested v1.88.1 17 Oct 2026)\nVCVP Core checks the rest in section 7.2
+note right of Engine #wheat:[ENGINE RULE] the engine checks only the status list signature and the value at idx , not typ , sub , exp or the bits (checked in engine 1.89.3 source)\nVCVP Core checks the rest in section 7.2
 note right of Engine #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : section 13.7.1 (informative , MUST) and SC-24 : the status_list.uri comes from a source allowed in the Trusted List , the Thai profile has no field for it yet , the engine uses the uri in the credential\nquestion : which Trusted List field lists the allowed status list sources
 note right of Engine #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : section 13.2 (informative , MUST) : the profile fixes one revision of Token Status List , draft-18 and draft-21 are not interchangeable , the engine and these diagrams follow draft-21\nquestion : which revision
 Engine->Core: Get the status list | GET /ssi/revocation/v1/list/{id} (VCVP Core 31)
@@ -331,7 +331,7 @@ note right of Core #wheat:[STANDARD] OpenID4VP 1.0\n• 13.3 (informative)  with
 note right of Core #wheat:[SPEC] the transaction id here is VerificationId
 note right of Trust #FFCDD2:[PENDING] waiting for a VCVP team decision | OpenID4VP 1.0\nissue : section 14.2 : the Response Code against session fixation does not apply to cross-device flows , Verifiers are RECOMMENDED (SHOULD) to add other mitigations (draft-ietf-oauth-cross-device-security)\nquestion : which mitigation does VCVP use
 alt Option A : Webhook (ConsumerKeys[].CallbackUrl has a value)
-    note right of Engine #wheat:[ENGINE RULE] sent right after the state changes , body has no claim values , no signature and no auth header\nINTERACTION_EXPIRED is not sent , a failed delivery is tried once more each time task WEBHOOK_NOTIFY runs , 5 tries in total then dropped (tested on engine v1.88.1)
+    note right of Engine #wheat:[ENGINE RULE] sent right after the state changes , body has no claim values , no signature and no auth header\nINTERACTION_EXPIRED is not sent , a failed delivery is tried once more each time task WEBHOOK_NOTIFY runs , 5 tries in total then dropped (checked in engine 1.89.3 source)
     note right of Core #wheat:[SPEC] the engine sends the webhook to the webhookDestinationUrl that VCVP Core set on the proof request (VP part 1 , section 3)\nVCVP policy : VCVP Core 30 is not reachable from outside , only the engine inside the VCVP network can call it\nand the URL carries the secret of this request (Verifications.WebhookSecretHash)
     Engine->Core: Engine webhook | POST /api/webhook/v1/proof-request (VCVP Core 30)\n{ proofId , status , eventTimestamp }
     Core->Core: Find proofId in Verifications table , check the secret in the URL against WebhookSecretHash
