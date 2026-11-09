@@ -331,27 +331,34 @@ note right of Core #wheat:[STANDARD] OpenID4VP 1.0\n• 13.3 (informative)  with
 note right of Core #wheat:[SPEC] the transaction id here is VerificationId
 note right of Trust #FFCDD2:[PENDING] waiting for a VCVP team decision | OpenID4VP 1.0\nissue : section 14.2 : the Response Code against session fixation does not apply to cross-device flows , Verifiers are RECOMMENDED (SHOULD) to add other mitigations (draft-ietf-oauth-cross-device-security)\nquestion : which mitigation does VCVP use
 note right of Engine #wheat:[ENGINE RULE] sent right after the state changes , body has no claim values , no signature and no auth header\nINTERACTION_EXPIRED is not sent , a failed delivery is tried once more each time task WEBHOOK_NOTIFY runs , 5 tries in total then dropped (checked in engine 1.89.3 source)
-note right of Core #wheat:[SPEC] the engine sends the webhook to the webhookDestinationUrl that VCVP Core set on every proof request (VP part 1 , section 3)\nVCVP policy : VCVP Core 30 is not reachable from outside , only the engine inside the VCVP network can call it\nand the URL carries the secret of this request (Verifications.WebhookSecretHash)
+note right of Core #wheat:[SPEC] the engine sends the webhook to the webhookDestinationUrl that VCVP Core set on every proof request (VP part 1 , section 3)\nVCVP policy : VCVP Core 30 is not reachable from outside , only the engine inside the VCVP network can call it\nand the URL carries webhook_token , the secret of this request (Verifications.WebhookSecretHash)
 Engine->Core: Engine webhook | POST /api/webhook/v1/proof-request (VCVP Core 30)\n{ proofId , status , eventTimestamp }
-Core->Core: Find proofId in Verifications table , check the secret in the URL against WebhookSecretHash
-alt Secret missing or does not match
-    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 30 (FailureReason = CALLER_NOT_AUTHENTICATED)
+Core->Core: Find Verifications table with VerificationId = proofId\nhash webhook_token and compare with Verifications.WebhookSecretHash
+alt proofId not in Verifications table
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 30 (FailureReason = VERIFICATION_NOT_FOUND)
+    Engine<--Core: 400
+else webhook_token missing or does not match
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 30 (FailureReason = WEBHOOK_SECRET_INVALID) , no data changed
     Engine<--Core: 401
-else Secret matches
+else webhook_token matches
     Core-->Engine: 200
     note right of Core #wheat:[DATA STORE] kept from the first ACCEPTED , later engine state changes do not overwrite it
     Core->Core: [DATA STORE] Keep the result in Verifications table (VerifiedAt , Status , Result) from the webhook status\nACCEPTED → Status = COMPLETED , Result = VALID | ERROR → Status = COMPLETED , Result = INVALID | REJECTED → Status = REJECTED
-    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 30 : the engine reported a new state (webhook status , Correlation.VerificationId)
     alt Verifications.CallbackUrl has a value
-        note right of Core #wheat:[SPEC] Verifications.CallbackUrl = callback_url sent at VCVP Core 24 , no claim values are sent
-        Core->VSys: Notify the Verifier Toolkit | POST Verifications.CallbackUrl\nverification_id , status
-        VSys-->Core: 200
-        VSys->VSys: Result is ready , call VCVP Core 32 once (section 9.1)
+        note right of Core #wheat:[SPEC] Verifications.CallbackUrl = callback_url sent at VCVP Core 24 , status = Verifications.Status\nthe notification is only a signal , no claim values and no result , the Verifier Toolkit reads the result at VCVP Core 32 (Consumer-Key + Token)
+        Core->VSys: Notify the Verifier Toolkit | POST Verifications.CallbackUrl\nverification_id , status , occurred_at
+        alt Delivered (2xx)
+            VSys-->Core: 2xx
+            VSys->VSys: Result is ready , call VCVP Core 32 once (section 9.1)
+        else Timeout or not 2xx
+            note right of Core #wheat:[SPEC] not resent , recorded in CallbackDelivery of the audit record , the Verifier Toolkit polls VCVP Core 32
+        end
     else Verifications.CallbackUrl is null
         Core->Core: No notification , the Verifier Toolkit polls VCVP Core 32
     end
+    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 30\n(EventType = VERIFICATION_RESULT_RECEIVED , Reason = webhook status , CallbackDelivery , Correlation.VerificationId) , the query (webhook_token) is not logged
 end
-opt Verifications.CallbackUrl is null : polling
+opt Verifications.CallbackUrl is null or the notification failed : polling
     loop Every few seconds until the answer is not PENDING or the request expires
         VSys->VSys: Call VCVP Core 32 (section 9.1)
     end

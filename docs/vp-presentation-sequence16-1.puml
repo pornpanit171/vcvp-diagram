@@ -51,7 +51,7 @@ else Verifier authorized and trusted
 
     note over Core,Engine #orange: 3. VCVP Core creates the proof request
     note right of Core #wheat:[SPEC] webhookDestinationUrl is sent on every request , the engine calls VCVP Core 30 when the result is ready\nthen VCVP Core calls Verifications.CallbackUrl when it has a value , null : the Verifier Toolkit asks for the result at VCVP Core 32 (VP part 2 , section 9)\nVCVP policy : a new random secret for each request , VCVP Core keeps only its hash
-    Core->Core: Create the webhook secret (32 random bytes)\nwebhookDestinationUrl = URL of VCVP Core 30 + ?s={secret}
+    Core->Core: Create the webhook secret (32 random bytes)\nwebhookDestinationUrl = URL of VCVP Core 30 + ?webhook_token={secret}
     Core->Engine: Create verification request | POST /api/proof-request/v1\nproofSchemaId , protocol , verifier , verifierKey , webhookDestinationUrl
     Engine-->Core: { id } = VerificationId (state CREATED)
     note right of Core #wheat:[STANDARD] PDPA B.E. 2562\n• section 39  record of processing activities , including the purpose
