@@ -29,10 +29,9 @@ note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E
 note right of Core #wheat:[SPEC] Trusted List not usable (TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE) : the calling step answers 503 Service Unavailable + Retry-After: 300\nnot the trust failure reason of that step , as in the ETDA Trusted List Load sequence
 
 note over Officer,Engine #khaki: 0.2 Find the published schema of the issuer (schema catalogue of VCVP)
-note right of Core #wheat:[STANDARD] SD-JWT VC draft-19\n• 5.3.2 (MAY)  type metadata from a registry the consumer trusts\n• 5.3.3 (MAY)  an ecosystem defines its own retrieval method
-note right of Core #wheat:[SPEC] the catalogue lists the schemas that issuers on this VCVP publish (CredentialSchemas , Status = ACTIVE)\nschemas of other systems are added to the catalogue manually by agreement
+note right of Core #wheat:[SPEC] the catalogue lists the schemas that issuers on this VCVP publish (CredentialSchemas , Status = ACTIVE)\nschemas of other systems are added to the catalogue by the VCVP administrator , procedure not designed yet
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.8 (MUST)  scope of an issuer = VC types and claims it may issue , checked from the Trusted List
-note right of Core #wheat:[SPEC] decided by ETDA after discussion : the VC types of each issuer in the Trusted List are phase 2 work , the catalogue of VCVP is used
+note right of Core #B3E5FC:[WORKAROUND] VCVP Core 46 searches schemas in the VCVP catalogue (CredentialSchemas , Status = ACTIVE , no engine call)\nbecause the Trusted List has no credential types per issuer yet (Thai VC ARF 2.0 DRAFT 0 9.8 , ETDA moved it to phase 2) and there is no central credential schema registry to search (3.3 , no ETDA API yet)\nremove this endpoint when ETDA publishes credential types in the Trusted List or a central credential schema registry , together with the [WORKAROUND] step of VCVP Core 22
 Officer->VSys: Search the published schemas (issuer , credential type)
 VSys->Core: List published schemas + Consumer-Key + Token | GET /api/credential-schema/v1/published (VCVP Core 46)\nissuer_org_code (optional) , credential_type_name (optional)
 Core->Core: Check Consumer-Key and Token , caller channel , ActorType = OFFICER\nvalidate caller authorization
@@ -69,7 +68,21 @@ else Caller not authorized
     Officer<--VSys: Show error , schema not imported
 else Caller authorized
     Core->Core: Map OrgCode to OrganizationId (Organizations)
-    Core->Engine: Get published schema | GET /ssi/schema/v2/{id} (VCVP Core 21)
+    note right of Core #B3E5FC:[WORKAROUND] the verifier imports only schemas in the VCVP catalogue (VCVP Core 46) : no central credential schema registry yet (Thai VC ARF 2.0 DRAFT 0 3.3 , no ETDA API)\nand no credential types per issuer in the Trusted List yet (9.8 , ETDA moved it to phase 2)\nremove when ETDA publishes a credential schema registry or credential types in the Trusted List , together with VCVP Core 46
+    Core->Core: Find source_credential_schema_id in CredentialSchemas table (Status = ACTIVE)\nSchemaUrl , OrgCode of the issuer (Organizations) , IssuingSystem = VCVP (for Source)
+    alt Source schema not in CredentialSchemas or not ACTIVE
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 22 (FailureReason = SCHEMA_NOT_FOUND)
+        VSys<--Core: 403 | failure_reason = SCHEMA_NOT_FOUND
+        Officer<--VSys: Show error , schema not imported
+    else Source schema in the catalogue
+    Core->Core: Find ImportedCredentialSchemas row of the caller organisation (OrganizationId)\nwith Source.CredentialSchemaId = source_credential_schema_id and Status = ACTIVE
+    note right of Core #wheat:[STANDARD] RFC 9110\n• 15.5.10  409 Conflict , conflict with the current state of the resource , the user can resolve it and resubmit
+    alt Already imported
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 22 (FailureReason = SCHEMA_ALREADY_IMPORTED)
+        VSys<--Core: 409 | failure_reason = SCHEMA_ALREADY_IMPORTED
+        Officer<--VSys: Show error , schema already imported
+    else Not imported yet
+    Core->Engine: Get published schema | GET {SchemaUrl} (VCVP Core 21)
     alt Source schema not found (engine BR_0006)
         Engine-->Core: 404 BR_0006
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 22 (FailureReason = SCHEMA_NOT_FOUND , EngineCalls)
@@ -79,9 +92,21 @@ else Caller authorized
     Engine-->Core: schema (formats[].ecosystemSchemaId , claims[] key , mappings.technicalKey)
     Core->Engine: Get the type metadata | GET /ssi/vct/v2/{orgId}/{id}/SD_JWT_VC (VCVP Core 18)
     Engine-->Core: type metadata document
-    note right of Core #wheat:[STANDARD] SD-JWT VC draft-19\n• 5.3 (MUST)  vct#integrity is an integrity metadata string (section 6)\n• 6  hash of the type metadata document
+    note right of Core #wheat:[STANDARD] SD-JWT VC draft-19\n• 5.3.1  type metadata retrieved from the URL in vct (HTTP GET)\n• 5.2 (REQUIRED)  vct in the type metadata document\n• 5.3 (MUST)  vct in the reference identical to the vct of the credential\n• 5.3 (MUST)  vct#integrity is an integrity metadata string (section 6)\n• 6  hash of the type metadata document octets
+    Core->Core: Check vct in the document = the vct used to fetch it (Formats[].EcosystemSchemaId of the source schema)
+    alt Type metadata not retrieved or vct does not match
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 22 (FailureReason = TYPE_METADATA_UNAVAILABLE , EngineCalls)
+        VSys<--Core: 502 | failure_reason = TYPE_METADATA_UNAVAILABLE
+        Officer<--VSys: Show error , schema not imported
+    else Type metadata matches
     Core->Core: TypeMetadataIntegrity = sha256 of the document octets (sha256-... as in vct#integrity)
     Core->Engine: Import schema into the verifier organisation | POST /api/credential-schema/v2/import
+    alt A schema with the same vct already exists in the verifier organisation (engine BR_0007)
+        Engine-->Core: 400 BR_0007
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 22 (FailureReason = SCHEMA_ALREADY_IMPORTED , EngineCalls)
+        VSys<--Core: 409 | failure_reason = SCHEMA_ALREADY_IMPORTED
+        Officer<--VSys: Show error , schema already imported
+    else Imported
     Engine-->Core: id
     Core->Engine: Get imported schema | GET /api/credential-schema/v2/{id}
     Engine-->Core: claims[] with id + key (new claim ids , different from the issuer copy)
@@ -89,6 +114,10 @@ else Caller authorized
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 22 : who imported which issuer schema (EngineCalls)
     VSys<--Core: 200 | imported_credential_schema_id
     Officer<--VSys: Schema imported
+    end
+    end
+    end
+    end
     end
 end
 
