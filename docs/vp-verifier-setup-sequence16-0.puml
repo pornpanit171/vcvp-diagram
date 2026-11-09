@@ -3,7 +3,6 @@ title Digital Credential Presentation part 0 : verifier setup , once per verifie
 
 participant "Verifier Officer" as Officer
 participant "<color:#white>Verifier as a Service Portal</color>" as VSys #6A1B9A
-participant "<color:#white>Other system</color>" as Other #607D8B
 participant "<color:#white>VCVP Core</color>" as Core #3F51B5
 participant "<color:#white>one-core (Credential Engine)</color>" as Engine #chocolate
 participant "<color:#white>HSM (AWS KMS)</color>" as HSM #darkgoldenrod
@@ -70,7 +69,7 @@ else Caller not authorized
 else Caller authorized
     Core->Core: Map OrgCode to OrganizationId (Organizations)
     note right of Core #B3E5FC:[WORKAROUND] the verifier imports only schemas in the CredentialSchemas table of VCVP , found with VCVP Core 46 : no central credential schema registry yet (Thai VC ARF 2.0 DRAFT 0 3.3 , no ETDA API)\nand no credential types per issuer in the Trusted List yet (9.8 , ETDA moved it to phase 2)\nremove when ETDA publishes a credential schema registry or credential types in the Trusted List , together with VCVP Core 46
-    Core->Core: Find source_credential_schema_id in CredentialSchemas table (Status = ACTIVE)\nSchemaUrl , EngineId , OrgCode of the issuer (Organizations) , IssuingSystem = VCVP (for Source)
+    Core->Core: Find source_credential_schema_id in CredentialSchemas table (Status = ACTIVE)\nEngineId , OrgCode of the issuer (Organizations) , IssuingSystem = VCVP (for Source)
     alt Source schema not in CredentialSchemas or not ACTIVE
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 22 (FailureReason = SCHEMA_NOT_FOUND)
         VSys<--Core: 403 | failure_reason = SCHEMA_NOT_FOUND
@@ -109,9 +108,7 @@ else Caller authorized
         Officer<--VSys: Show error , schema already imported
     else Imported
     Engine-->Core: id
-    Core->Engine: Get imported schema | GET /api/credential-schema/v2/{id}
-    Engine-->Core: claims[] with id + key (new claim ids , different from the issuer copy)
-    Core->Core: [DATA STORE] Store ImportedCredentialSchemas table (Claims[].ClaimId , Source , Formats[].EcosystemSchemaId = vct , Formats[].TypeMetadataIntegrity)
+    Core->Core: [DATA STORE] Store ImportedCredentialSchemas table (ImportedCredentialSchemaId = id , OrganizationId , Source ,\nTypeMetadataIntegrity , EngineId , Status = ACTIVE)
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 22 : who imported which issuer schema (EngineCalls)
     VSys<--Core: 200 | imported_credential_schema_id
     Officer<--VSys: Schema imported
@@ -141,33 +138,10 @@ else Caller has no ACTIVE OrgRole in the organisation that owns the schema
 else Schema found
     Core->Engine: Get imported schema | GET /api/credential-schema/v2/{id}
     Engine-->Core: schema (claims[] key , datatype , required , translations , mappings)
+    Core->Core: source and status from ImportedCredentialSchemas , type_metadata_integrity of the SD_JWT_VC format from TypeMetadataIntegrity\nversion and claims[].data_category from CredentialSchemas (row = Source.CredentialSchemaId , claim matched by Path = claims[].key)\nrevocation_method from the format
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 45 : who read which imported schema (EngineCalls)
-    VSys<--Core: 200 | imported_credential_schema_id , created_date , last_modified , org_code , source ,\nname_en , name_local , description_en , description_local , version , formats ,\nsuspendable , revocable , requires_wallet_instance_attestation , key_storage_security , claims , status
+    VSys<--Core: 200 | created_date , last_modified , org_code , source ,\nname_en , name_local , description_en , description_local , version , formats ,\nsuspendable , revocable , requires_wallet_instance_attestation , key_storage_security , claims , status
     Officer<--VSys: Claims that can be requested
-end
-
-note over Other,Engine #khaki: 0.2.3 Read a published schema (public , other systems)
-note right of Core #wheat:[SPEC] public endpoint , no Consumer-Key or Token | answers in the VCVP Core API format , not the engine format
-Other->Core: Get published schema | GET /ssi/schema/v2/{id} (VCVP Core 21)
-Core->Core: Find id in CredentialSchemas table , EngineId selects the engine
-alt id is not a UUID
-    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 21 (FailureReason = REQUEST_REJECTED)
-    Other<--Core: 400 | failure_reason = REQUEST_REJECTED
-else Schema not in CredentialSchemas
-    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 21 (FailureReason = SCHEMA_NOT_FOUND)
-    Other<--Core: 404 | failure_reason = SCHEMA_NOT_FOUND
-else Schema found
-    Core->Engine: Get published schema | GET /ssi/schema/v2/{id}
-    alt Schema not found in the engine (engine BR_0006)
-        Engine-->Core: 404 BR_0006
-        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 21 (FailureReason = SCHEMA_NOT_FOUND , EngineCalls)
-        Other<--Core: 404 | failure_reason = SCHEMA_NOT_FOUND
-    else Schema found in the engine
-        Engine-->Core: schema
-        Core->Core: [DATA STORE] Read CredentialSchemas and Organizations (org_code)
-        Core->Core: [AUDIT LOG] Write audit record of VCVP Core 21 (EventType = CREDENTIAL_SCHEMA_READ , Actor.Type = SYSTEM , EngineCalls)
-        Other<--Core: 200 | credential_schema_id , created_date , last_modified , org_code , name_en , name_local ,\ndescription_en , description_local , version , formats , suspendable , revocable ,\nrequires_wallet_instance_attestation , key_storage_security , transaction_code , schema_url , claims , status
-    end
 end
 
 note over Officer,Engine #khaki: 0.3 Define what to request (verification template)
@@ -184,7 +158,9 @@ else Caller not authorized
     Officer<--VSys: Show error , template not created
 else Caller authorized
     Core->Core: Find ImportedCredentialSchemaId in ImportedCredentialSchemas table (Status = ACTIVE) , not found 403 FailureReason = SCHEMA_NOT_FOUND\nCheck the caller has an ACTIVE OrgRole in ImportedCredentialSchemas.OrganizationId , otherwise 403 FailureReason = CALLER_NOT_AUTHORIZED
-    Core->Core: Check the requested claims exist in Claims[].Path of that schema , otherwise 400 FailureReason = REQUEST_REJECTED
+    Core->Engine: Get imported schema | GET /api/credential-schema/v2/{id}
+    Engine-->Core: schema (claims[] key)
+    Core->Core: Check the requested claims exist in claims[].key of that schema , otherwise 400 FailureReason = REQUEST_REJECTED
     note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 7.2 item 3  the wallet enforces the purposes and allowed claims of the verifier\n• appendix 8.2 E.1.5 (MUST)  claims path and purpose within the scope allowed for the verifier , otherwise rejected
     note right of Core #wheat:[SPEC] decided by ETDA after discussion : checking the requested claims against ver.txt is phase 2 work , not done in phase 1
     Core->Core: Check the requested claims are within the claims allowed for this verifier in the Verifier Trusted List (ver.txt)
