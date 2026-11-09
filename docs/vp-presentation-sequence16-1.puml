@@ -19,8 +19,8 @@ note over Officer,VSys #khaki: 1. Verifier requests a verification
 Officer->VSys: Request verification\ncredential , requested claims ex : LicenseNumber , FullNameTH , purpose
 
 note over VSys,Trust #violet: 2. VCVP Core validates the verifier before creating a proof request
-VSys->Core: Create verification + Consumer-Key + Token | POST /api/proof-request/v1 (VCVP Core 24)\nverification_template_id , verifier_identity_id , purpose (code , legal_basis , consent_ref optional)
-Core->Core: Check Consumer-Key and Token , validate caller authorization\nCheck Purpose.Code is in the Purpose.Code list , otherwise 400 FailureReason = REQUEST_REJECTED
+VSys->Core: Create verification + Consumer-Key + Token | POST /api/proof-request/v1 (VCVP Core 24)\nverification_template_id , verifier_identity_id , purpose (code , legal_basis , consent_ref optional) , callback_url (optional)
+Core->Core: Check Consumer-Key and Token , validate caller authorization\nCheck Purpose.Code is in the Purpose.Code list and callback_url (when sent) is https , otherwise 400 FailureReason = REQUEST_REJECTED
 note right of Core #wheat:[STANDARD] PDPA B.E. 2562\n• section 19  consent is obtained before or at the time of collection
 note right of Core #wheat:[SPEC] the holder gives consent in the wallet when presenting (VP part 2 , section 4) , DW keeps the sharing record\nConsentRef = optional reference of a consent the verifier agency keeps itself , stored when sent , not checked
 note right of Core #wheat:[STANDARD] RFC 9110\n• 15.5.2 (MUST)  401 when the request has no valid credentials , with WWW-Authenticate\n• 15.5.4  403 when the caller is known but not allowed
@@ -34,22 +34,31 @@ alt Consumer-Key or Token invalid or missing
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 24 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
     VSys<--Core: 401 + WWW-Authenticate | failure_reason = CALLER_NOT_AUTHENTICATED
     Officer<--VSys: Show error , verification not created
-else Verifier not authorized or not in the Verifier Trusted List
+else Purpose.Code not in the Purpose.Code list or callback_url not https
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 24 (FailureReason = REQUEST_REJECTED)
+    VSys<--Core: 400 | failure_reason = REQUEST_REJECTED
+    Officer<--VSys: Show error , verification not created
+else Template or verifier identity not found , verifier not authorized or not in the Verifier Trusted List
     note over Core #pink: Request rejected before creating a proof request
-    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 24\n(FailureReason = CALLER_NOT_AUTHORIZED / VERIFIER_NOT_TRUSTED , TrustCheck)
-    VSys<--Core: 403 | failure_reason = CALLER_NOT_AUTHORIZED / VERIFIER_NOT_TRUSTED
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 24\n(FailureReason = TEMPLATE_NOT_FOUND / CALLER_NOT_AUTHORIZED / VERIFIER_DID_NOT_FOUND / VERIFIER_NOT_TRUSTED , TrustCheck)
+    VSys<--Core: 403 | failure_reason = TEMPLATE_NOT_FOUND / CALLER_NOT_AUTHORIZED / VERIFIER_DID_NOT_FOUND / VERIFIER_NOT_TRUSTED
     Officer<--VSys: Reject request\nUnauthorized / Not trusted / Insufficient permission
+else Trusted List not usable
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 24 (FailureReason = TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE)
+    VSys<--Core: 503 + Retry-After | failure_reason = TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE
+    Officer<--VSys: Show error , try again later
 else Verifier authorized and trusted
 
     note over Core,Engine #orange: 3. VCVP Core creates the proof request
-    note right of Core #wheat:[SPEC] webhookDestinationUrl is sent only when the calling Consumer-Key has a CallbackUrl\nvalue = URL of VCVP Core 30 , the engine calls it when the result is ready , then VCVP Core calls the CallbackUrl (VP part 2 , section 9)\nVCVP policy : the URL carries a new random secret for this request , VCVP Core keeps only its hash\nno CallbackUrl : not sent , the Verifier Toolkit asks for the result at VCVP Core 32
-    Core->Engine: Create verification request | POST /api/proof-request/v1\nproofSchemaId , protocol , transport , verifier , verifierKey , webhookDestinationUrl
+    note right of Core #wheat:[SPEC] webhookDestinationUrl is sent on every request , the engine calls VCVP Core 30 when the result is ready\nthen VCVP Core calls Verifications.CallbackUrl when it has a value , null : the Verifier Toolkit asks for the result at VCVP Core 32 (VP part 2 , section 9)\nVCVP policy : a new random secret for each request , VCVP Core keeps only its hash
+    Core->Core: Create the webhook secret (32 random bytes)\nwebhookDestinationUrl = URL of VCVP Core 30 + ?s={secret}
+    Core->Engine: Create verification request | POST /api/proof-request/v1\nproofSchemaId , protocol , verifier , verifierKey , webhookDestinationUrl
     Engine-->Core: { id } = VerificationId (state CREATED)
     note right of Core #wheat:[STANDARD] PDPA B.E. 2562\n• section 39  record of processing activities , including the purpose
     note right of Core #wheat:[SPEC] purpose and legal basis are recorded when the request is created and cannot be added later
-    Core->Core: [DATA STORE] Store Verifications table\nVerificationId = id from the engine , Purpose (Code , LegalBasis , ConsentRef) , WebhookSecretHash , Status = PENDING
+    Core->Core: [DATA STORE] Store Verifications table\nVerificationId = id from the engine , Purpose (Code , LegalBasis , ConsentRef when sent) , WebhookSecretHash (sha256 of the secret) , CallbackUrl (callback_url , null when not sent) , Status = PENDING
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 24 : who requested which verification and for which purpose\n(Purpose.Code , Purpose.LegalBasis , Purpose.ConsentRef , TrustCheck , EngineCalls , Correlation.VerificationId)
-    VSys<--Core: 200 | verification_id , expires_at
+    VSys<--Core: 200 | verification_id
 
     note over VSys,Engine #orange: 4. Generate the verification link
     VSys->Core: Request verification link + Consumer-Key + Token | POST /api/proof-request/v1/share (VCVP Core 25)\nverification_id

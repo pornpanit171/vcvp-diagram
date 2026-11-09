@@ -398,7 +398,7 @@ end
 
 note over Core,Engine #orange: 6. Create Digital Credential and Offer
 Core->Core: Check Formats of the request : every value is in CredentialSchemas.Formats and not repeated , otherwise 400 FailureReason = REQUEST_REJECTED
-Core->Core: Use ClaimId from the request as the engine claim id\n(CredentialSchemas.Claims[].ClaimId is the claim id created by the engine)
+Core->Core: Use ClaimId from the request as the engine claim id\n(claim_id returned by VCVP Core 07 from the engine schema)
 note right of Engine #wheat:[ENGINE RULE] the credential is created unsigned (state CREATED) , no status list index yet\nthe engine signs it when the wallet requests the credential (part 2 , VCVP Core 16)
 note right of Core #wheat:[SPEC] request : credentialSchemaId = CredentialSchemaId , issuer = IdentityId of the issuer , issuerKey = KeyId of the issuer key\nprotocol = OPENID4VCI_FINAL1 , claimValues [ claimId , path , value ] , formats = Formats of the request
 note right of Engine #wheat:[ENGINE RULE] the engine checks claimValues : claimId in the schema , required claims present , path matches claimId , value not empty , value matches the datatype

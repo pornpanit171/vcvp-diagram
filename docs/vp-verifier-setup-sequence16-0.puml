@@ -146,7 +146,7 @@ end
 
 note over Officer,Engine #khaki: 0.3 Define what to request (verification template)
 Officer->VSys: Define verification template (claims to request , chosen from the result of VCVP Core 45)
-VSys->Core: Create verification template + Consumer-Key + Token | POST /api/proof-schema/v1 (VCVP Core 23)\ninputs [ imported_credential_schema_id , claims ]
+VSys->Core: Create verification template + Consumer-Key + Token | POST /api/proof-schema/v1 (VCVP Core 23)\norg_code , name_en , name_local , expire_duration_sec , inputs [ imported_credential_schema_id , claims ]
 Core->Core: Check Consumer-Key and Token , validate caller authorization
 alt Consumer-Key or Token invalid or missing
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 23 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
@@ -157,10 +157,12 @@ else Caller not authorized
     VSys<--Core: 403 | failure_reason = CALLER_NOT_AUTHORIZED
     Officer<--VSys: Show error , template not created
 else Caller authorized
-    Core->Core: Find ImportedCredentialSchemaId in ImportedCredentialSchemas table (Status = ACTIVE) , not found 403 FailureReason = SCHEMA_NOT_FOUND\nCheck the caller has an ACTIVE OrgRole in ImportedCredentialSchemas.OrganizationId , otherwise 403 FailureReason = CALLER_NOT_AUTHORIZED
+    Core->Core: Map org_code to OrganizationId (Organizations) , not found 403 FailureReason = ORGANISATION_NOT_FOUND
+    Core->Core: Find ImportedCredentialSchemas of each inputs[] (Status = ACTIVE)\nnot found or OrganizationId of the row is not the OrganizationId of org_code : 403 FailureReason = SCHEMA_NOT_FOUND\nCheck the caller has an ACTIVE OrgRole in ImportedCredentialSchemas.OrganizationId , otherwise 403 FailureReason = CALLER_NOT_AUTHORIZED
     Core->Engine: Get imported schema | GET /api/credential-schema/v2/{id}
-    Engine-->Core: schema (claims[] key)
+    Engine-->Core: schema (claims[] id , key)
     Core->Core: Check the requested claims exist in claims[].key of that schema , otherwise 400 FailureReason = REQUEST_REJECTED
+    Core->Core: Check expire_duration_sec : when sent , an integer from 1 to 3600 , otherwise 400 FailureReason = REQUEST_REJECTED | not sent : 3600
     note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 7.2 item 3  the wallet enforces the purposes and allowed claims of the verifier\n• appendix 8.2 E.1.5 (MUST)  claims path and purpose within the scope allowed for the verifier , otherwise rejected
     note right of Core #wheat:[SPEC] decided by ETDA after discussion : checking the requested claims against ver.txt is phase 2 work , not done in phase 1
     Core->Core: Check the requested claims are within the claims allowed for this verifier in the Verifier Trusted List (ver.txt)
@@ -168,11 +170,11 @@ else Caller authorized
     note right of Core #wheat:[SPEC] the vct contains the schema id , a new schema version is a new schema with a new vct and new type metadata\nthe vct and vct#integrity of the presented credential are checked in VP part 2 , section 7.2
     note right of Engine #wheat:[ENGINE RULE] expireDuration is how long the engine keeps the received claim values after the check\n(retainUntilDate = completedDate + expireDuration , then the engine deletes them)\nIt is not the lifetime of the verification link (the link lives 1 hour)
     note right of Core #wheat:[STANDARD] RFC 9901 (SD-JWT)\n• 10.2 (SHOULD NOT)  after verification the verifier does not store the issuer-signed JWT or the disclosures
-    note right of Core #wheat:[SPEC] claim values stay in the engine until the portal reads the result , at most 3600 seconds (expireDuration)
-    Core->Engine: Define verification requirements | POST /api/proof-schema/v1\nproofInputSchemas [ credentialSchemaId , claimSchemas [ id , required ] ] , expireDuration
+    note right of Core #wheat:[SPEC] expireDuration = expire_duration_sec (default 3600 , at most 3600)
+    Core->Engine: Define verification requirements | POST /api/proof-schema/v1\nname , organisationId , expireDuration , proofInputSchemas [ credentialSchemaId , claimSchemas [ id , required ] ]
     Engine-->Core: id
     Core->Core: [DATA STORE] Store VerificationTemplates table (VerificationTemplateId = id from the engine)
-    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 23 : who created which verification template (EngineCalls)
+    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 23 (EventType = VERIFICATION_TEMPLATE_CREATED) : who created which verification template (EngineCalls)
     VSys<--Core: 200 | verification_template_id
     Officer<--VSys: Verification template ready
 end

@@ -96,7 +96,7 @@ note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.8 (MUST)  t
 Core->Core: Look up the verifier in the Verifier Trusted List again (ver.txt , ETDA Trusted List Load)\nservice type = verifier (ServiceTypeIdentifier) , name (TEName) , organisation and service status = active , validity period current
 alt Verifier no longer active in the Trusted List
     Core->Core: Update Verifications table Status = VERIFIER_NOT_TRUSTED\ndo not call the engine , let the request expire
-    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 27 (FailureReason = VERIFIER_NOT_TRUSTED , TrustCheck)
+    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 27 (TrustCheck.Result = FAILED)
     note right of Core #wheat:[SPEC] verifier not trusted : verifier_trust.result = FAILED (result is PASSED or FAILED)
     DW<--Core: 200 | verifier_trust
     Mini<--DW: Reject verification request
@@ -124,9 +124,9 @@ alt No matching credential
     DW->DW: Keep the detailed reason in the DW sharing confirmation record , send reason = HOLDER_DECLINED to VCVP Core
     DW->Core: Holder ends the verification request before sending VP | POST /api/proof-request/v1/cancel (VCVP Core 28)\nstate , reason
     Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , otherwise 401 FailureReason = CALLER_NOT_AUTHENTICATED / 403 FailureReason = CALLER_NOT_AUTHORIZED
-    note right of Core #wheat:[SPEC] do not call the engine , let the request expire
-    Core->Core: Find Verifications table by state , not found 403 FailureReason = VERIFICATION_NOT_FOUND\nUpdate Status = REJECTED (Reason sent = HOLDER_DECLINED)
-    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 28 : the holder ended the request (Reason = HOLDER_DECLINED , Correlation.VerificationId)
+    note right of Core #B3E5FC:[WORKAROUND] VCVP Core records the decline itself and does not call the engine , the request expires in the engine\nOpenID4VP 1.0 8.5 has the wallet send error = access_denied to response_uri , engine 1.89.3 accepts only vp_token or response (JWE)\nremove when the engine accepts the 8.5 error response and updates the proof request state itself
+    Core->Core: Find Verifications table by state (InteractionId) , not found 403 FailureReason = VERIFICATION_NOT_FOUND\nStatus not PENDING : 409 FailureReason = VERIFICATION_ALREADY_ENDED , status not overwritten\nreason not in CancelReason (HOLDER_DECLINED , REQUEST_EXPIRED) : 400 FailureReason = REQUEST_REJECTED\nUpdate Status = REJECTED (Reason sent = HOLDER_DECLINED)
+    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 28 : the holder ended the request (EventType = VERIFICATION_CANCELLED , Reason = HOLDER_DECLINED , Correlation.VerificationId)
     DW<--Core: 200
     Mini<--DW: 200
     Mini-->User: No matching credential
@@ -147,9 +147,9 @@ alt User rejects
     DW->Core: Holder ends the verification request before sending VP | POST /api/proof-request/v1/cancel (VCVP Core 28)\nstate , reason
     Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , otherwise 401 FailureReason = CALLER_NOT_AUTHENTICATED / 403 FailureReason = CALLER_NOT_AUTHORIZED
     note right of Core #wheat:[STANDARD] OpenID4VP 1.0\n• 8.5  access_denied error sent to response_uri
-    note right of Core #wheat:[ENGINE RULE] the engine does not accept access_denied (400) , so VCVP Core records the decline\ndo not call the engine , let the request expire
-    Core->Core: Find Verifications table by state , not found 403 FailureReason = VERIFICATION_NOT_FOUND\nUpdate Status = REJECTED (Reason sent = HOLDER_DECLINED)
-    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 28 : the holder ended the request (Reason = HOLDER_DECLINED , Correlation.VerificationId)
+    note right of Core #B3E5FC:[WORKAROUND] VCVP Core records the decline itself and does not call the engine , the request expires in the engine\nOpenID4VP 1.0 8.5 has the wallet send error = access_denied to response_uri , engine 1.89.3 accepts only vp_token or response (JWE)\nremove when the engine accepts the 8.5 error response and updates the proof request state itself
+    Core->Core: Find Verifications table by state (InteractionId) , not found 403 FailureReason = VERIFICATION_NOT_FOUND\nStatus not PENDING : 409 FailureReason = VERIFICATION_ALREADY_ENDED , status not overwritten\nreason not in CancelReason (HOLDER_DECLINED , REQUEST_EXPIRED) : 400 FailureReason = REQUEST_REJECTED\nUpdate Status = REJECTED (Reason sent = HOLDER_DECLINED)
+    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 28 : the holder ended the request (EventType = VERIFICATION_CANCELLED , Reason = HOLDER_DECLINED , Correlation.VerificationId)
     DW<--Core: 200
     Mini<--DW: 200
     Mini-->User: Sharing cancelled
@@ -183,9 +183,9 @@ alt Signing failed / key unavailable / user cancels
     DW->DW: Keep the detailed reason in the DW sharing confirmation record , send reason = HOLDER_DECLINED to VCVP Core
     DW->Core: Holder ends the verification request before sending VP | POST /api/proof-request/v1/cancel (VCVP Core 28)\nstate , reason
     Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , otherwise 401 FailureReason = CALLER_NOT_AUTHENTICATED / 403 FailureReason = CALLER_NOT_AUTHORIZED
-    note right of Core #wheat:[SPEC] do not call the engine , let the request expire
-    Core->Core: Find Verifications table by state , not found 403 FailureReason = VERIFICATION_NOT_FOUND\nUpdate Status = REJECTED (Reason sent = HOLDER_DECLINED)
-    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 28 : the holder ended the request (Reason = HOLDER_DECLINED , Correlation.VerificationId)
+    note right of Core #B3E5FC:[WORKAROUND] VCVP Core records the decline itself and does not call the engine , the request expires in the engine\nOpenID4VP 1.0 8.5 has the wallet send error = access_denied to response_uri , engine 1.89.3 accepts only vp_token or response (JWE)\nremove when the engine accepts the 8.5 error response and updates the proof request state itself
+    Core->Core: Find Verifications table by state (InteractionId) , not found 403 FailureReason = VERIFICATION_NOT_FOUND\nStatus not PENDING : 409 FailureReason = VERIFICATION_ALREADY_ENDED , status not overwritten\nreason not in CancelReason (HOLDER_DECLINED , REQUEST_EXPIRED) : 400 FailureReason = REQUEST_REJECTED\nUpdate Status = REJECTED (Reason sent = HOLDER_DECLINED)
+    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 28 : the holder ended the request (EventType = VERIFICATION_CANCELLED , Reason = HOLDER_DECLINED , Correlation.VerificationId)
     DW<--Core: 200
     Mini<--DW: 200
     Mini-->User: Sharing cancelled
@@ -330,25 +330,28 @@ note over Officer,Trust #khaki: 9. Verifier gets the result
 note right of Core #wheat:[STANDARD] OpenID4VP 1.0\n• 13.3 (informative)  without redirect_uri the Verifier queries for the result with its own transaction id
 note right of Core #wheat:[SPEC] the transaction id here is VerificationId
 note right of Trust #FFCDD2:[PENDING] waiting for a VCVP team decision | OpenID4VP 1.0\nissue : section 14.2 : the Response Code against session fixation does not apply to cross-device flows , Verifiers are RECOMMENDED (SHOULD) to add other mitigations (draft-ietf-oauth-cross-device-security)\nquestion : which mitigation does VCVP use
-alt Option A : Webhook (ConsumerKeys[].CallbackUrl has a value)
-    note right of Engine #wheat:[ENGINE RULE] sent right after the state changes , body has no claim values , no signature and no auth header\nINTERACTION_EXPIRED is not sent , a failed delivery is tried once more each time task WEBHOOK_NOTIFY runs , 5 tries in total then dropped (checked in engine 1.89.3 source)
-    note right of Core #wheat:[SPEC] the engine sends the webhook to the webhookDestinationUrl that VCVP Core set on the proof request (VP part 1 , section 3)\nVCVP policy : VCVP Core 30 is not reachable from outside , only the engine inside the VCVP network can call it\nand the URL carries the secret of this request (Verifications.WebhookSecretHash)
-    Engine->Core: Engine webhook | POST /api/webhook/v1/proof-request (VCVP Core 30)\n{ proofId , status , eventTimestamp }
-    Core->Core: Find proofId in Verifications table , check the secret in the URL against WebhookSecretHash
-    alt Secret missing or does not match
-        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 30 (FailureReason = CALLER_NOT_AUTHENTICATED)
-        Engine<--Core: 401
-    else Secret matches
+note right of Engine #wheat:[ENGINE RULE] sent right after the state changes , body has no claim values , no signature and no auth header\nINTERACTION_EXPIRED is not sent , a failed delivery is tried once more each time task WEBHOOK_NOTIFY runs , 5 tries in total then dropped (checked in engine 1.89.3 source)
+note right of Core #wheat:[SPEC] the engine sends the webhook to the webhookDestinationUrl that VCVP Core set on every proof request (VP part 1 , section 3)\nVCVP policy : VCVP Core 30 is not reachable from outside , only the engine inside the VCVP network can call it\nand the URL carries the secret of this request (Verifications.WebhookSecretHash)
+Engine->Core: Engine webhook | POST /api/webhook/v1/proof-request (VCVP Core 30)\n{ proofId , status , eventTimestamp }
+Core->Core: Find proofId in Verifications table , check the secret in the URL against WebhookSecretHash
+alt Secret missing or does not match
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 30 (FailureReason = CALLER_NOT_AUTHENTICATED)
+    Engine<--Core: 401
+else Secret matches
     Core-->Engine: 200
     note right of Core #wheat:[DATA STORE] kept from the first ACCEPTED , later engine state changes do not overwrite it
     Core->Core: [DATA STORE] Keep the result in Verifications table (VerifiedAt , Status , Result) from the webhook status\nACCEPTED → Status = COMPLETED , Result = VALID | ERROR → Status = COMPLETED , Result = INVALID | REJECTED → Status = REJECTED
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 30 : the engine reported a new state (webhook status , Correlation.VerificationId)
-    note right of Core #wheat:[SPEC] CallbackUrl of the Consumer-Key that created the request (AgentId = Verifications.CallerAgentId) , no claim values are sent
-    Core->VSys: Notify the Verifier Toolkit | POST ConsumerKeys[].CallbackUrl\nverification_id , status
-    VSys-->Core: 200
-    VSys->VSys: Result is ready , call VCVP Core 32 once (section 9.1)
+    alt Verifications.CallbackUrl has a value
+        note right of Core #wheat:[SPEC] Verifications.CallbackUrl = callback_url sent at VCVP Core 24 , no claim values are sent
+        Core->VSys: Notify the Verifier Toolkit | POST Verifications.CallbackUrl\nverification_id , status
+        VSys-->Core: 200
+        VSys->VSys: Result is ready , call VCVP Core 32 once (section 9.1)
+    else Verifications.CallbackUrl is null
+        Core->Core: No notification , the Verifier Toolkit polls VCVP Core 32
     end
-else Option B : Polling (ConsumerKeys[].CallbackUrl has no value)
+end
+opt Verifications.CallbackUrl is null : polling
     loop Every few seconds until the answer is not PENDING or the request expires
         VSys->VSys: Call VCVP Core 32 (section 9.1)
     end
