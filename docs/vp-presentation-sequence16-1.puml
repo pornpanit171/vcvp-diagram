@@ -19,7 +19,7 @@ note over Officer,VSys #khaki: 1. Verifier requests a verification
 Officer->VSys: Request verification\ncredential , requested claims ex : LicenseNumber , FullNameTH , purpose
 
 note over VSys,Trust #violet: 2. VCVP Core validates the verifier before creating a proof request
-VSys->Core: Create verification + Consumer-Key + Token | POST /api/proof-request/v1 (VCVP Core 24)\nengine_name , actor_type , verification_template_id , verifier_identity_id , purpose (code , legal_basis , consent_ref optional)
+VSys->Core: Create verification + Consumer-Key + Token | POST /api/proof-request/v1 (VCVP Core 24)\nverification_template_id , verifier_identity_id , purpose (code , legal_basis , consent_ref optional)
 Core->Core: Check Consumer-Key and Token , validate caller authorization\nCheck Purpose.Code is in the Purpose.Code list , otherwise 400 FailureReason = REQUEST_REJECTED
 note right of Core #wheat:[STANDARD] PDPA B.E. 2562\n• section 19  consent is obtained before or at the time of collection
 note right of Core #wheat:[SPEC] the holder gives consent in the wallet when presenting (VP part 2 , section 4) , DW keeps the sharing record\nConsentRef = optional reference of a consent the verifier agency keeps itself , stored when sent , not checked
@@ -52,7 +52,7 @@ else Verifier authorized and trusted
     VSys<--Core: 200 | verification_id , expires_at
 
     note over VSys,Engine #orange: 4. Generate the verification link
-    VSys->Core: Request verification link + Consumer-Key + Token | POST /api/proof-request/v1/share (VCVP Core 25)\nengine_name , actor_type , verification_id
+    VSys->Core: Request verification link + Consumer-Key + Token | POST /api/proof-request/v1/share (VCVP Core 25)\nverification_id
     Core->Core: Check Consumer-Key and Token , validate caller authorization
     alt Consumer-Key or Token invalid or missing
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 25 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)

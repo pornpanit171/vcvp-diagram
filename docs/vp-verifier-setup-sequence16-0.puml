@@ -70,6 +70,12 @@ else Caller not authorized
 else Caller authorized
     Core->Core: Map OrgCode to OrganizationId (Organizations)
     Core->Engine: Get published schema | GET /ssi/schema/v2/{id} (VCVP Core 21)
+    alt Source schema not found (engine BR_0006)
+        Engine-->Core: 404 BR_0006
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 22 (FailureReason = SCHEMA_NOT_FOUND , EngineCalls)
+        VSys<--Core: 403 | failure_reason = SCHEMA_NOT_FOUND
+        Officer<--VSys: Show error , schema not imported
+    else Source schema found
     Engine-->Core: schema (formats[].ecosystemSchemaId , claims[] key , mappings.technicalKey)
     Core->Engine: Get the type metadata | GET /ssi/vct/v2/{orgId}/{id}/SD_JWT_VC (VCVP Core 18)
     Engine-->Core: type metadata document
@@ -83,6 +89,7 @@ else Caller authorized
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 22 : who imported which issuer schema (EngineCalls)
     VSys<--Core: 200 | imported_credential_schema_id
     Officer<--VSys: Schema imported
+    end
 end
 
 note over Officer,Engine #khaki: 0.2.2 Read the imported schema (claims to choose)

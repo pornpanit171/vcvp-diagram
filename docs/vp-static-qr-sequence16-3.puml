@@ -43,8 +43,9 @@ DW->Core: Read request object from request_uri | GET /ssi/verification-counter/v
 note right of Core #wheat:[SPEC] limit scans per counter (VCVP policy)
 Core->Core: Read VerificationCounters table by CounterId (template , verifier identity , purpose) , Status = ACTIVE\nVerifier still listed as a verifier service (ServiceTypeIdentifier) and active in the cached Verifier Trusted List (ver.txt , ETDA Trusted List Load)
 alt Counter not found or inactive , verifier not trusted or scan limit reached
-    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 42 (FailureReason)
-    DW<--Core: 400 | error = invalid_request , vcvp_failure_reason
+    note right of Core #wheat:[SPEC] counter not found or Status not ACTIVE → COUNTER_NOT_FOUND\nverifier not in ver.txt or not active → VERIFIER_NOT_TRUSTED\nscan limit reached (VCVP policy) → COUNTER_SCAN_LIMIT_EXCEEDED
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 42 (FailureReason = the vcvp_failure_reason answered)
+    DW<--Core: 400 | error = invalid_request , vcvp_failure_reason = COUNTER_NOT_FOUND / VERIFIER_NOT_TRUSTED / COUNTER_SCAN_LIMIT_EXCEEDED
     Mini<--DW: Error (response of /dw/v1/presentation/start) | invalid_request
     Mini-->User: Cannot verify at this counter
 else Counter active
@@ -85,11 +86,11 @@ alt state = ACCEPTED and TC-3 passed
     Core->Core: Issue a 4 digit code unique among the open results of this counter , short validity
     Core->Core: [DATA STORE] Store CounterCode and CounterCodeExpiresAt in Verifications table
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 43 : a counter code was issued (CounterId , Correlation.VerificationId , CounterCode)
-    DW<--Core: 200 | counter_code
+    DW<--Core: 200 | verification_id , state , counter_code , counter_code_expires_at
     Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result , CounterCode
     Mini-->User: Show the code ex : 4821
 else Not ACCEPTED
-    DW<--Core: 200 | status (no code)
+    DW<--Core: 200 | verification_id , state (no code)
     Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result , no code
     Mini-->User: Sharing not completed
 end

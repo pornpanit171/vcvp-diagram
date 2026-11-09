@@ -435,7 +435,7 @@ alt Offer link not created (engine error)
     DW<--Core: 200 | credential_id , offer_url , expires_at , transaction_code (only when the schema has transactionCode)
 else Offer link created
     note right of Engine #wheat:[ENGINE RULE] schema transactionCode = { type NUMERIC or ALPHANUMERIC , length 4 to 10 , description }\nshare returns transactionCode only for such a schema , every share returns a new code
-    Engine-->Core: url = openid-credential-offer://?credential_offer_uri=...\nexpiresAt , transactionCode (only when the schema has transactionCode)
+    Engine-->Core: url\nexpiresAt , transactionCode (only when the schema has transactionCode)
     Core->Core: transactionCode goes only into the response to DW Core , it is not logged and not stored
     note right of Core #wheat:[DATA STORE] Credentials table\nCredentialId = id from the engine\nurl stored in OfferUrl (temporary)\nexpiresAt stored in OfferExpiresAt\nStatus = PENDING
     Core->Core: [DATA STORE] Store offer in Credentials table
