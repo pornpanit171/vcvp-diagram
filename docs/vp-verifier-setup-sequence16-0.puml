@@ -29,10 +29,10 @@ note right of Core #wheat:[SPEC] steps in the ETDA Trusted List Load sequence (f
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.1 (MUST)  the verifier fetches iss.txt and wp.txt
 note right of Core #wheat:[SPEC] Trusted List not usable (TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE) : the calling step answers 503 Service Unavailable + Retry-After: 300\nnot the trust failure reason of that step , as in the ETDA Trusted List Load sequence
 
-note over Officer,Engine #khaki: 0.2 Find the published schema of the issuer (schema catalogue of VCVP)
-note right of Core #wheat:[SPEC] the catalogue lists the schemas that issuers on this VCVP publish (CredentialSchemas , Status = ACTIVE)\nschemas of other systems are added to the catalogue by the VCVP administrator , procedure not designed yet
+note over Officer,Engine #khaki: 0.2 Find the published schema of the issuer (CredentialSchemas table of VCVP)
+note right of Core #wheat:[SPEC] the CredentialSchemas table holds the schemas that issuers on this VCVP created at VCVP Core 05 (Status = ACTIVE)\nschemas of other systems are added to this table by the VCVP administrator , procedure not designed yet
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.8 (MUST)  scope of an issuer = VC types and claims it may issue , checked from the Trusted List
-note right of Core #B3E5FC:[WORKAROUND] VCVP Core 46 searches schemas in the VCVP catalogue (CredentialSchemas , Status = ACTIVE , no engine call)\nbecause the Trusted List has no credential types per issuer yet (Thai VC ARF 2.0 DRAFT 0 9.8 , ETDA moved it to phase 2) and there is no central credential schema registry to search (3.3 , no ETDA API yet)\nremove this endpoint when ETDA publishes credential types in the Trusted List or a central credential schema registry , together with the [WORKAROUND] step of VCVP Core 22
+note right of Core #B3E5FC:[WORKAROUND] VCVP Core 46 searches schemas in the CredentialSchemas table of VCVP (Status = ACTIVE , no engine call)\nbecause the Trusted List has no credential types per issuer yet (Thai VC ARF 2.0 DRAFT 0 9.8 , ETDA moved it to phase 2) and there is no central credential schema registry to search (3.3 , no ETDA API yet)\nremove this endpoint when ETDA publishes credential types in the Trusted List or a central credential schema registry , together with the [WORKAROUND] step of VCVP Core 22
 Officer->VSys: Search the published schemas (issuer , credential type)
 VSys->Core: List published schemas + Consumer-Key + Token | GET /api/credential-schema/v1/published (VCVP Core 46)\nissuer_org_code (optional) , credential_type_name (optional)
 Core->Core: Check Consumer-Key and Token , caller channel , ActorType = OFFICER\nvalidate caller authorization
@@ -45,8 +45,8 @@ else Caller not authorized
     VSys<--Core: 403 | failure_reason = CALLER_NOT_AUTHORIZED
     Officer<--VSys: Show error , no schemas shown
 else Caller authorized
-    Core->Core: Read CredentialSchemas (Status = ACTIVE) of the issuer organisations , filtered by the query , no match gives an empty list\nnames of the credential type from CredentialTypes , OrgCode and name of the issuer from Organizations
-    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 46 : who searched the catalogue , with the query
+    Core->Core: Read CredentialSchemas (Status = ACTIVE) of the issuer organisations , filtered by the query , no match gives an empty list\nnames of the schema from CredentialSchemas , OrgCode and name of the issuer from Organizations\nCredentialTypes only to match credential_type_name (NameEn or NameLocal)
+    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 46 : who searched the published schemas , with the query
     VSys<--Core: 200 | items [ org_code , organization_name , credential_type_id , name_en , name_local ,\ncredential_schema_id , formats [ format , ecosystem_schema_id ] ]
     Officer<--VSys: Published schemas of the issuers
 end
@@ -69,13 +69,13 @@ else Caller not authorized
     Officer<--VSys: Show error , schema not imported
 else Caller authorized
     Core->Core: Map OrgCode to OrganizationId (Organizations)
-    note right of Core #B3E5FC:[WORKAROUND] the verifier imports only schemas in the VCVP catalogue (VCVP Core 46) : no central credential schema registry yet (Thai VC ARF 2.0 DRAFT 0 3.3 , no ETDA API)\nand no credential types per issuer in the Trusted List yet (9.8 , ETDA moved it to phase 2)\nremove when ETDA publishes a credential schema registry or credential types in the Trusted List , together with VCVP Core 46
+    note right of Core #B3E5FC:[WORKAROUND] the verifier imports only schemas in the CredentialSchemas table of VCVP , found with VCVP Core 46 : no central credential schema registry yet (Thai VC ARF 2.0 DRAFT 0 3.3 , no ETDA API)\nand no credential types per issuer in the Trusted List yet (9.8 , ETDA moved it to phase 2)\nremove when ETDA publishes a credential schema registry or credential types in the Trusted List , together with VCVP Core 46
     Core->Core: Find source_credential_schema_id in CredentialSchemas table (Status = ACTIVE)\nSchemaUrl , EngineId , OrgCode of the issuer (Organizations) , IssuingSystem = VCVP (for Source)
     alt Source schema not in CredentialSchemas or not ACTIVE
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 22 (FailureReason = SCHEMA_NOT_FOUND)
         VSys<--Core: 403 | failure_reason = SCHEMA_NOT_FOUND
         Officer<--VSys: Show error , schema not imported
-    else Source schema in the catalogue
+    else Source schema found in CredentialSchemas
     Core->Core: Find ImportedCredentialSchemas row of the caller organisation (OrganizationId)\nwith Source.CredentialSchemaId = source_credential_schema_id and Status = ACTIVE
     note right of Core #wheat:[STANDARD] RFC 9110\n• 15.5.10  409 Conflict , conflict with the current state of the resource , the user can resolve it and resubmit
     alt Already imported
