@@ -366,29 +366,27 @@ end
 
 note over Officer,Core #khaki: 9.1 VCVP Core 32 answers each call (both options)
 VSys->Core: Get verification result + Consumer-Key + Token | GET /api/proof-request/v1/{verification_id} (VCVP Core 32)
-Core->Core: Check Consumer-Key and Token , validate caller authorization , otherwise 401 FailureReason = CALLER_NOT_AUTHENTICATED / 403 FailureReason = CALLER_NOT_AUTHORIZED\nVerificationId not found 403 FailureReason = VERIFICATION_NOT_FOUND , another organisation 403 FailureReason = CALLER_NOT_AUTHORIZED
+Core->Core: Check Consumer-Key and Token , validate caller authorization , otherwise 401 FailureReason = CALLER_NOT_AUTHENTICATED / 403 FailureReason = CALLER_NOT_AUTHORIZED\nVerificationId not found 403 FailureReason = VERIFICATION_NOT_FOUND , caller not an officer of the organisation that owns the request 403 FailureReason = CALLER_NOT_AUTHORIZED
 Core->Core: Read Verifications table\nresult kept in section 7.2 , 8 or 9 , or the wallet side status (REJECTED / VERIFIER_NOT_TRUSTED) , a TC-1 failure is not sent to VCVP Core (the request expires)
 Core->Engine: Get proof request | GET /api/proof-request/v1/{id}
 Engine-->Core: organisationId , state (PENDING / ACCEPTED / ERROR / INTERACTION_EXPIRED) ,\nproofInputs[].claims[] (path , value) , completedDate , retainUntilDate
-Core->Core: [DATA STORE] Keep the result in Verifications table when the engine state is not PENDING and no result is kept yet
+Core->Core: [DATA STORE] Store Verifications DisclosedClaims (names only)\nkeep the result only when Verifications is still PENDING and the engine has ended (ACCEPTED / ERROR / REJECTED , INTERACTION_EXPIRED → EXPIRED)
 note right of Core #wheat:[ENGINE RULE] after ACCEPTED a second response with the same state is refused (400 invalid_request) and the proof stays ACCEPTED
 alt ACCEPTED and TC-3 passed
-    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 32\nPurpose , LegalBasis , result , EngineCalls , disclosed claim names only (no values)
-    VSys<--Core: 200 | status = COMPLETED , result = VALID , verified_at , credential_status = ACTIVE\ndisclosed_claims [ path , name_en , name_local , value ]
+    VSys<--Core: 200 | status , result , verified_at , reason , issuer_trust , disclosed_claims [ path , name_en , name_local , value ]
     note right of Core #wheat:[STANDARD] RFC 9901 (SD-JWT)\n• 10.2 (SHOULD NOT)  after verification the verifier does not store the issuer-signed JWT or the disclosures
-    note right of Core #wheat:[SPEC] claim values are deleted once the Verifier Toolkit has them , later reads return the result and claim names without values
+    note right of Core #wheat:[SPEC] claim values are deleted after the response is sent , not deleted when sending fails\nlater reads return the result and claim names without values
     Core->Engine: Delete the claim values | DELETE /api/proof-request/v1/{id}/claims
     Engine-->Core: 204
-    Core->Core: [DATA STORE] Verifications DisclosedClaims (names only) , ClaimsDeliveredAt
+    Core->Core: [DATA STORE] Verifications ClaimsDeliveredAt
     Officer<--VSys: Show result : verified , claims
-else ERROR , or TC-3 failed
-    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 32 : the verification failed (result = FAILED , EngineCalls)
-    VSys<--Core: 200 | status = COMPLETED , result = INVALID (reason when known : ISSUER_NOT_TRUSTED / PRESENTATION_TYPE_MISMATCH / CREDENTIAL_STATUS_INVALID / PRESENTATION_EXPIRED)
+else ERROR , or TC-3 failed (result = INVALID)
+    VSys<--Core: 200 | status , result , verified_at , reason , issuer_trust , disclosed_claims [ path , name_en , name_local , value ]
     Officer<--VSys: Show result : failed
 else Wallet side status kept in Verifications table , or engine state PENDING / INTERACTION_EXPIRED
-    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 32 (EngineCalls)
-    VSys<--Core: 200 | status = PENDING / EXPIRED / wallet side reason
+    VSys<--Core: 200 | status , result , verified_at , reason , issuer_trust , disclosed_claims [ path , name_en , name_local , value ]
     Officer<--VSys: Show status : waiting / not shared by the holder / verifier not trusted / expired
 end
+Core->Core: [AUDIT LOG] Write audit record of VCVP Core 32\n(EventType = VERIFICATION_RESULT_READ , Actor OFFICER , EngineCalls GET + DELETE claims , Correlation.VerificationId) , no claim values
 
 @enduml
