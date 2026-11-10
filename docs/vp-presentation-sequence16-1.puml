@@ -59,38 +59,38 @@ else Verifier authorized and trusted
     Core->Core: [DATA STORE] Store Verifications table\nVerificationId = id from the engine , Purpose (Code , LegalBasis , ConsentRef when sent) , WebhookSecretHash (sha256 of the secret) , CallbackUrl (callback_url , null when not sent) , Status = PENDING
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 24 : who requested which verification and for which purpose\n(Purpose.Code , Purpose.LegalBasis , Purpose.ConsentRef , TrustCheck , EngineCalls , Correlation.VerificationId)
     VSys<--Core: 200 | verification_id
+end
 
-    note over VSys,Engine #orange: 4. Generate the verification link
-    VSys->Core: Request verification link + Consumer-Key + Token | POST /api/proof-request/v1/share (VCVP Core 25)\nverification_id
-    Core->Core: Check Consumer-Key and Token , validate caller authorization
-    alt Consumer-Key or Token invalid or missing
-        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 25 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
-        VSys<--Core: 401 + WWW-Authenticate | failure_reason = CALLER_NOT_AUTHENTICATED
-        Officer<--VSys: Show error , no verification link
-    else Caller not authorized
-        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 25 (FailureReason = CALLER_NOT_AUTHORIZED)
-        VSys<--Core: 403 | failure_reason = CALLER_NOT_AUTHORIZED
-        Officer<--VSys: Show error , no verification link
-    else Caller authorized
-        Core->Core: Find VerificationId in Verifications table , not found 403 FailureReason = VERIFICATION_NOT_FOUND\nanother organisation 403 FailureReason = CALLER_NOT_AUTHORIZED
-        note right of Core #wheat:[STANDARD] OpenID4VP 1.0\n• 5.9.3 (MUST)  decentralized_identifier , the request object is signed with a key of the verifier DID
-        note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.5 (MUST)  TC-1 , the wallet finds the verifier public key in the Verifier Trusted List\n• 8.1.2 (MUST)  client identifier prefix from OpenID4VP , decentralized_identifier allowed\n• 12.7  x509_san_dns listed for verifiers in the Trusted List\n• chapter 14 SC-09  the wallet enforces the client_id prefix\n• 12.2.1 (MUST NOT)  no redirect_uri client_id without a DID
-        note right of Core #wheat:[SPEC] verifier trust comes from ver.txt , not from a verifier attestation signed by the engine itself
-        note right of Engine #wheat:[ENGINE RULE] share works only when the state is CREATED , PENDING or INTERACTION_EXPIRED , other states get 400 BR_0013\na new share replaces the interaction , the previous link stops working
-        Core->Engine: Generate verification link | POST /api/proof-request/v1/{id}/share\nbody { "params" : { "clientIdScheme" : "decentralized_identifier" } }
-        alt Link created
-            Engine-->Core: url , expiresAt , state
-            Core->Core: [DATA STORE] Store OfferUrl + ExpiresAt in Verifications table , Status = PENDING
-            Core->Core: [AUDIT LOG] Write audit record of VCVP Core 25 : who created the verification link (EngineCalls , Correlation.VerificationId)
-            VSys<--Core: 200 | offer_url , expires_at
-            note right of VSys #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.2 , E.1.3 , E.1.4  the QR carries request_uri , the wallet fetches the full request object (cross-device)
-            Officer<--VSys: Show QR code (cross-device) or deep link (same device)\nthe holder scans the QR next (VP part 2 , section 1)
-        else State not CREATED / PENDING / INTERACTION_EXPIRED
-            Engine-->Core: 400 BR_0013
-            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 25 (FailureReason = VERIFICATION_NOT_SHAREABLE , EngineCalls , Correlation.VerificationId)
-            VSys<--Core: 409 | failure_reason = VERIFICATION_NOT_SHAREABLE
-            Officer<--VSys: Show error , create a new verification (section 2)
-        end
+note over VSys,Engine #orange: 4. Generate the verification link
+VSys->Core: Request verification link + Consumer-Key + Token | POST /api/proof-request/v1/share (VCVP Core 25)\nverification_id
+Core->Core: Check Consumer-Key and Token , validate caller authorization
+alt Consumer-Key or Token invalid or missing
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 25 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
+    VSys<--Core: 401 + WWW-Authenticate | failure_reason = CALLER_NOT_AUTHENTICATED
+    Officer<--VSys: Show error , no verification link
+else Caller not authorized
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 25 (FailureReason = CALLER_NOT_AUTHORIZED)
+    VSys<--Core: 403 | failure_reason = CALLER_NOT_AUTHORIZED
+    Officer<--VSys: Show error , no verification link
+else Caller authorized
+    Core->Core: Find VerificationId in Verifications table , not found 403 FailureReason = VERIFICATION_NOT_FOUND\nanother organisation 403 FailureReason = CALLER_NOT_AUTHORIZED
+    note right of Core #wheat:[STANDARD] OpenID4VP 1.0\n• 5.9.3 (MUST)  decentralized_identifier , the request object is signed with a key of the verifier DID
+    note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.5 (MUST)  TC-1 , the wallet finds the verifier public key in the Verifier Trusted List\n• 8.1.2 (MUST)  client identifier prefix from OpenID4VP , decentralized_identifier allowed\n• 12.7  x509_san_dns listed for verifiers in the Trusted List\n• chapter 14 SC-09  the wallet enforces the client_id prefix\n• 12.2.1 (MUST NOT)  no redirect_uri client_id without a DID
+    note right of Core #wheat:[SPEC] verifier trust comes from ver.txt , not from a verifier attestation signed by the engine itself
+    note right of Engine #wheat:[ENGINE RULE] share works only when the state is CREATED , PENDING or INTERACTION_EXPIRED , other states get 400 BR_0013\na new share replaces the interaction , the previous link stops working
+    Core->Engine: Generate verification link | POST /api/proof-request/v1/{id}/share\nbody { "params" : { "clientIdScheme" : "decentralized_identifier" } }
+    alt Link created
+        Engine-->Core: url , expiresAt , state
+        Core->Core: [DATA STORE] Store OfferUrl + ExpiresAt in Verifications table , Status = PENDING
+        Core->Core: [AUDIT LOG] Write audit record of VCVP Core 25 : who created the verification link (EngineCalls , Correlation.VerificationId)
+        VSys<--Core: 200 | offer_url , expires_at
+        note right of VSys #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.2 , E.1.3 , E.1.4  the QR carries request_uri , the wallet fetches the full request object (cross-device)
+        Officer<--VSys: Show QR code (cross-device) or deep link (same device)\nthe holder scans the QR next (VP part 2 , section 1)
+    else State not CREATED / PENDING / INTERACTION_EXPIRED
+        Engine-->Core: 400 BR_0013
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 25 (FailureReason = VERIFICATION_NOT_SHAREABLE , EngineCalls , Correlation.VerificationId)
+        VSys<--Core: 409 | failure_reason = VERIFICATION_NOT_SHAREABLE
+        Officer<--VSys: Show error , create a new verification (section 2)
     end
 end
 

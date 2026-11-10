@@ -375,10 +375,8 @@ note right of Core #wheat:[ENGINE RULE] after ACCEPTED a second response with th
 alt ACCEPTED and TC-3 passed
     VSys<--Core: 200 | status , result , verified_at , reason , issuer_trust , disclosed_claims [ path , name_en , name_local , value ]
     note right of Core #wheat:[STANDARD] RFC 9901 (SD-JWT)\n• 10.2 (SHOULD NOT)  after verification the verifier does not store the issuer-signed JWT or the disclosures
-    note right of Core #wheat:[SPEC] claim values are deleted after the response is sent , not deleted when sending fails\nlater reads return the result and claim names without values
-    Core->Engine: Delete the claim values | DELETE /api/proof-request/v1/{id}/claims
-    Engine-->Core: 204
-    Core->Core: [DATA STORE] Verifications ClaimsDeliveredAt
+    note right of Core #wheat:[SPEC] disclosed_claims values come from the engine until the claim values are deleted (section 9.2)\nafter ClaimsDeletedAt is set , only the names from Verifications.DisclosedClaims , without values
+    Core->Core: [DATA STORE] Verifications ClaimsDeliveredAt , the first time claim values are returned , no delete here
     Officer<--VSys: Show result : verified , claims
 else ERROR , or TC-3 failed (result = INVALID)
     VSys<--Core: 200 | status , result , verified_at , reason , issuer_trust , disclosed_claims [ path , name_en , name_local , value ]
@@ -387,6 +385,22 @@ else Wallet side status kept in Verifications table , or engine state PENDING / 
     VSys<--Core: 200 | status , result , verified_at , reason , issuer_trust , disclosed_claims [ path , name_en , name_local , value ]
     Officer<--VSys: Show status : waiting / not shared by the holder / verifier not trusted / expired
 end
-Core->Core: [AUDIT LOG] Write audit record of VCVP Core 32\n(EventType = VERIFICATION_RESULT_READ , Actor OFFICER , EngineCalls GET + DELETE claims , Correlation.VerificationId) , no claim values
+Core->Core: [AUDIT LOG] Write audit record of VCVP Core 32\n(EventType = VERIFICATION_RESULT_READ , Actor OFFICER , EngineCalls GET , Correlation.VerificationId) , no claim values
+
+note over Core,Engine #khaki: 9.2 VCVP Core deletes the claim values (periodic job)
+note right of Core #wheat:[SPEC] VCVP policy : grace period 300 seconds by default after ClaimsDeliveredAt\nif nobody reads the result , the engine deletes the claim values itself at expireDuration (retainUntilDate)
+group VCVP Core claim-delete job (periodic)
+    Core->Core: Find Verifications rows with ClaimsDeliveredAt older than the grace period and ClaimsDeletedAt null
+    loop Each row found
+        Core->Engine: Delete the claim values | DELETE /api/proof-request/v1/{id}/claims
+        alt Deleted
+            Engine-->Core: 204
+            Core->Core: [DATA STORE] Verifications ClaimsDeletedAt
+            Core->Core: [AUDIT LOG] Write audit record (EventType = VERIFICATION_CLAIMS_DELETED , Actor SYSTEM , EngineCalls DELETE claims , Correlation.VerificationId)
+        else Delete failed
+            Core->Core: ClaimsDeletedAt not set , retried on the next run
+        end
+    end
+end
 
 @enduml
