@@ -18,6 +18,7 @@ note right of DW #wheat:[CONDITION] before this flow (setup , outside the system
 note right of DW #wheat:[SPEC] steps in the ETDA Trusted List Load sequence (first tab) | DW Core loads ver.txt (section 1.2) , VCVP Core loads wp.txt (section 7.1) and iss.txt (section 7.2)
 note right of DW #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.1 (MUST)  the wallet fetches the ETDA key and ver.txt
 note right of DW #wheat:[SPEC] Trusted List not usable (TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE) : the calling step answers 503 Service Unavailable + Retry-After: 300\nnot the trust failure reason of that step , as in the ETDA Trusted List Load sequence
+note right of Core #wheat:[SPEC] /ssi endpoints that pass the engine through (VCVP Core 26 , 31) : an engine error goes back to the caller in the VCVP error format (error , vcvp_failure_reason)\nthe audit record keeps FailureReason and EngineCalls , no table changes
 
 note right of Mini #wheat:[SPEC] The verification link reaches the wallet by QR or deep link\nVCVP and DW Core do not push the link to the app
 note right of Core #wheat:[SPEC] Protocol endpoints (/ssi) carry no Consumer-Key\nrequest object and response write VCVPAuditLog (Actor Channel = WALLET , no caller OrgCode)

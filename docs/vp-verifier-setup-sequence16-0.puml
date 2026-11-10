@@ -91,7 +91,7 @@ else Caller authorized
         Officer<--VSys: Show error , schema not imported
     else Source schema found
     VCEngine-->Core: schema (formats[].ecosystemSchemaId , claims[] key , mappings.technicalKey)
-    Core->VCEngine: Get the type metadata | GET /ssi/vct/v2/{orgId}/{id}/SD_JWT_VC (same engine endpoint as VCVP Core 18)
+    Core->VCEngine: Get the type metadata | GET /ssi/vct/v2/{organisationId}/{credentialSchemaId}/{format} (same engine endpoint as VCVP Core 18)
     VCEngine-->Core: type metadata document
     note right of Core #wheat:[STANDARD] SD-JWT VC draft-19\n• 5.3.1  type metadata retrieved from the URL in vct (HTTP GET)\n• 5.2 (REQUIRED)  vct in the type metadata document\n• 5.3 (MUST)  vct in the reference identical to the vct of the credential\n• 5.3 (MUST)  vct#integrity is an integrity metadata string (section 6)\n• 6  hash of the type metadata document octets
     Core->Core: Check vct in the document = the vct used to fetch it (Formats[].EcosystemSchemaId of the source schema)

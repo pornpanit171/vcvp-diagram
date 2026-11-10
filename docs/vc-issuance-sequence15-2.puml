@@ -14,6 +14,7 @@ note over DW,Trust #violet: 0. Load ETDA Trusted List (when a transaction needs 
 note right of DW #wheat:[CONDITION] before this flow (setup , outside the system) : the issuing agency is registered in iss.txt (DID , keys , credential types)\nand DW Core in wp.txt as wallet provider (certificate for WUA signatures , location of the WUA status lists) | WUA = WIA and key attestation\nThai VC ARF 2.0 DRAFT 0 9.9 (MUST) , 10.4.2
 note right of DW #wheat:[SPEC] steps in the ETDA Trusted List Load sequence (first tab) | DW Core loads iss.txt (section 7) , VCVP Core loads wp.txt (section 8)
 note right of DW #wheat:[SPEC] Trusted List not usable (TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE) : the calling step answers 503 Service Unavailable + Retry-After: 300\nnot the trust failure reason of that step , as in the ETDA Trusted List Load sequence
+note right of Core #wheat:[SPEC] /ssi endpoints that pass the engine through (VCVP Core 11 , 12 , 13 , 15 , 17 , 18 , 19 , 31) : an engine error goes back to the caller in the VCVP error format (error , vcvp_failure_reason)\nthe audit record keeps FailureReason and EngineCalls , no table changes
 
 note over DW,VCEngine #orange: 7. DW Core Resolves the Credential Offer (inside request 1.2)
 
@@ -26,7 +27,7 @@ DW->DW: Parse OfferUrl to get credential_offer_uri
 note right of Core #wheat:[SPEC] Protocol endpoints (/ssi , /.well-known) carry no Consumer-Key\noffer , token , credential , notification write VCVPAuditLog (Actor Channel = WALLET , no caller OrgCode)\nissuer metadata , authorization server metadata , nonce , DID document , vct type metadata are public reads\nalso written to VCVPAuditLog (no Actor)
 
 DW->Core: Read offer from credential_offer_uri | GET /ssi/openid4vci/final-1.0/{credentialSchemaId}/offer/{credentialId} (VCVP Core 11)\n(URL = credential_offer_uri in OfferUrl , {credentialSchemaId} and {credentialId} are engine ids inside it)
-Core->VCEngine: Read offer from credential_offer_uri | GET /ssi/openid4vci/final-1.0/{credentialSchemaId}/offer/{credentialId}
+Core->VCEngine: Read offer from credential_offer_uri | GET /ssi/openid4vci/final-1.0/{credential_schema_id}/offer/{credential_id}
 VCEngine-->Core: credential_issuer , credential_configuration_ids , grants.pre-authorized_code , grants.tx_code (when required)
 Core->Core: [DATA STORE] Keep the engine interaction id (its value is the pre-authorized_code) in Credentials.InteractionId\nused only to find the credential from the access token later (sections 8.3 , 9 , 9.3) | credential found by {credentialId} in the offer path = CredentialId
 Core->Core: [AUDIT LOG] Write audit record of VCVP Core 11 : the wallet read the offer of this credential (EngineCalls , Correlation.CredentialId)
@@ -35,12 +36,12 @@ note right of DW #wheat:[SPEC] kept from the offer : pre-authorized_code (token 
 DW->DW: Keep the offer values and build the issuer metadata URL
 
 DW->Core: Read issuer metadata from credential_issuer | GET /.well-known/openid-credential-issuer/ssi/openid4vci/final-1.0/{protocolId}/{identifierId}/{credentialSchemaId} (VCVP Core 12)\n(URL = /.well-known/openid-credential-issuer + path of credential_issuer from the offer , {protocolId} = OPENID4VCI_FINAL1 , {identifierId} = engine id of the issuer identifier , {credentialSchemaId})
-Core->VCEngine: Read issuer metadata from credential_issuer |\nGET /.well-known/openid-credential-issuer/ssi/openid4vci/final-1.0/{protocolId}/{identifierId}/{credentialSchemaId}
+Core->VCEngine: Read issuer metadata from credential_issuer |\nGET /.well-known/openid-credential-issuer/ssi/openid4vci/final-1.0/{protocol_id}/{identifier_id}/{credential_schema_id}
 VCEngine-->Core: credential_endpoint , nonce_endpoint , notification_endpoint , credential_configurations_supported
 DW<--Core: issuer metadata | credential_endpoint , nonce_endpoint , notification_endpoint , credential_configurations_supported , credential_request_encryption , credential_response_encryption
 
 DW->Core: Get authorization server metadata from authorization server | GET /.well-known/oauth-authorization-server/ssi/openid4vci/final-1.0/{protocolId}/{identifierId}/{credentialSchemaId} (VCVP Core 13)\n(URL = /.well-known/oauth-authorization-server + path of credential_issuer , the metadata declares no authorization_servers)
-Core->VCEngine: Get authorization server metadata from authorization server |\nGET /.well-known/oauth-authorization-server/ssi/openid4vci/final-1.0/{protocolId}/{identifierId}/{credentialSchemaId}
+Core->VCEngine: Get authorization server metadata from authorization server |\nGET /.well-known/oauth-authorization-server/ssi/openid4vci/final-1.0/{protocol_id}/{identifier_id}/{credential_schema_id}
 VCEngine-->Core: token_endpoint\ngrant_types_supported = [ pre-authorized_code , refresh_token ]
 DW<--Core: authorization server metadata | token_endpoint
 DW->DW: Keep token_endpoint , credential_endpoint , nonce_endpoint , notification_endpoint (for sections 8 and 9)
@@ -73,7 +74,7 @@ note right of DW #wheat:[SPEC] one nonce for every proof of the same request
 note right of VCEngine #wheat:[ENGINE RULE] the engine requires a server nonce in every DPoP proof and returns DPoP-Nonce in the nonce , token , credential and notification responses (engine 1.89.3)
 note right of DW #wheat:[STANDARD] RFC 9449\n• 8 (MAY)  the server supplies a nonce , a proof without it gets 400 use_dpop_nonce with DPoP-Nonce\n• 8.2 (MUST)  the client uses the new nonce in the next request\n• 9  a resource server answers 401 WWW-Authenticate DPoP error="use_dpop_nonce"
 DW->Core: Request nonce | POST nonce_endpoint (from issuer metadata) = /ssi/openid4vci/final-1.0/{protocolId}/nonce (VCVP Core 15)
-Core->VCEngine: Request nonce | POST /ssi/openid4vci/final-1.0/{protocolId}/nonce
+Core->VCEngine: Request nonce | POST /ssi/openid4vci/final-1.0/{protocol_id}/nonce
 VCEngine-->Core: c_nonce , DPoP-Nonce (header)
 DW<--Core: c_nonce , DPoP-Nonce (header)
 DW->DW: [DATA STORE] Keep in the issuance request : pre-authorized_code , c_nonce , DPoP-Nonce , OfferExpiresAt , endpoints (stored encrypted , not logged)
@@ -187,7 +188,7 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
     else WIA fresh
         Core->Core: Continue
     end
-    Core->VCEngine: Request access token with pre-authorized_code (from offer) | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/token\npre-authorized code + tx_code (when required) + OAuth-Client-Attestation , OAuth-Client-Attestation-PoP
+    Core->VCEngine: Request access token with pre-authorized_code (from offer) | POST /ssi/openid4vci/final-1.0/{id}/token\npre-authorized code + tx_code (when required) + OAuth-Client-Attestation , OAuth-Client-Attestation-PoP
     VCEngine->VCEngine: Check both headers are present (OAuth-Client-Attestation , OAuth-Client-Attestation-PoP) , every schema sets walletAttestation.requireInstanceAttestation
     VCEngine->VCEngine: Verify the WIA signature , the PoP signature and the PoP audience
 
@@ -265,7 +266,7 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
             Core->Core: Continue to renew offer link
         end
         note right of VCEngine #wheat:[ENGINE RULE] share works only when the state is CREATED , PENDING or INTERACTION_EXPIRED , other states get 400 BR_0002\n(OFFERED after the token exchange , ERROR after a wrong tx_code) | OFFERED does not change when the offer expires , the holder can still get the credential with its access token
-        Core->VCEngine: Create offer link | POST /api/credential/v1/{CredentialId}/share
+        Core->VCEngine: Create offer link | POST /api/credential/v1/{id}/share
         alt Offer link created
             VCEngine-->Core: url = openid-credential-offer://?credential_offer_uri=...\nexpiresAt , transactionCode (only when the schema has transactionCode)
             Core->Core: [DATA STORE] Update the same credential in Credentials table : replace OfferUrl and OfferExpiresAt with the new offer , Status = PENDING
@@ -357,7 +358,7 @@ Core->Core: [DATA STORE] Keep the key attestation status reference (key_storage_
     note right of Core #wheat:[STANDARD] RFC 9449\n• 11.1  a used jti is declined in the accepted time window
     note right of VCEngine #wheat:[ENGINE RULE] the engine declines a reused DPoP proof (401 invalid_dpop_proof , tested on engine 1.89.3)
     note right of Core #wheat:[ENGINE RULE] the engine accepts a DPoP proof while iat is within 5 minutes , plus 1 minute leeway (fixed in the engine code)
-    Core->VCEngine: Request credential with access token + proof JWT | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/credential
+    Core->VCEngine: Request credential with access token + proof JWT | POST /ssi/openid4vci/final-1.0/{id}/credential
 
     VCEngine->VCEngine: Check typ is openid4vci-proof+jwt
     VCEngine->VCEngine: Check exactly one of kid or jwk , extract holder public key
@@ -478,7 +479,7 @@ DW<--Core: Credential Response (application/json) | credentials[].credential , n
         DW<--Core: DID document
         note right of DW #wheat:[SPEC] URL = vct in the credential , {orgId} = engine id of the issuer organisation
         DW->Core: Get credential type description (vct type metadata) | GET /ssi/vct/v2/{orgId}/{credentialSchemaId}/SD_JWT_VC (VCVP Core 18)
-        Core->VCEngine: Get credential type description (vct type metadata) | GET /ssi/vct/v2/{orgId}/{credentialSchemaId}/SD_JWT_VC
+        Core->VCEngine: Get credential type description (vct type metadata) | GET /ssi/vct/v2/{organisationId}/{credentialSchemaId}/{format}
         VCEngine-->Core: credential type description (vct type metadata)
         DW<--Core: credential type description (vct type metadata)
         note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : 12.6 (MUST) checks the validity period of each issuer key , the Trusted List has no per-key period\nquestion : will the Trusted List list each issuer key with its start and end date
@@ -516,7 +517,7 @@ DW<--Core: Credential Response (application/json) | credentials[].credential , n
             DW->Core: Notify credential_failure with notification_id + access token | POST notification_endpoint = /ssi/openid4vci/final-1.0/{credentialSchemaId}/notification (VCVP Core 19)
             note right of Core #wheat:[STANDARD] RFC 9449\n• 7.1 (MUST)  a DPoP-bound access token is sent with the DPoP scheme and a DPoP proof
             note right of VCEngine #wheat:[ENGINE RULE] the engine declines a reused DPoP proof (401 invalid_dpop_proof , tested on engine 1.89.3)
-            Core->VCEngine: Notify credential_failure with notification_id + access token | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/notification
+            Core->VCEngine: Notify credential_failure with notification_id + access token | POST /ssi/openid4vci/final-1.0/{id}/notification
             alt Notification DPoP proof without the current server nonce (use_dpop_nonce)
                 VCEngine-->Core: 401 + WWW-Authenticate DPoP | error = use_dpop_nonce , DPoP-Nonce (header)
                 DW<--Core: 401 + WWW-Authenticate DPoP | error = use_dpop_nonce , DPoP-Nonce (header)
@@ -566,7 +567,7 @@ CoreApp-->Mini: Credential stored | credentialId
             note right of Core #wheat:[STANDARD] RFC 9449\n• 7.1 (MUST)  a DPoP-bound access token is sent with the DPoP scheme and a DPoP proof
             note right of VCEngine #wheat:[ENGINE RULE] the engine declines a reused DPoP proof (401 invalid_dpop_proof , tested on engine 1.89.3)
             note right of VCEngine #wheat:[ENGINE RULE] the engine sets ACCEPTED when the credential is issued , not on notification\ncredential_accepted does not change state\ncredential_failure → ERROR | credential_deleted → REJECTED\nERROR and REJECTED set the Token Status List entry to INVALID , suspend , reactivate and revoke are refused afterwards (400 BR_0366)
-            Core->VCEngine: Notify credential_accepted with notification_id + access token | POST /ssi/openid4vci/final-1.0/{credentialSchemaId}/notification
+            Core->VCEngine: Notify credential_accepted with notification_id + access token | POST /ssi/openid4vci/final-1.0/{id}/notification
             alt Notification DPoP proof without the current server nonce (use_dpop_nonce)
                 VCEngine-->Core: 401 + WWW-Authenticate DPoP | error = use_dpop_nonce , DPoP-Nonce (header)
                 DW<--Core: 401 + WWW-Authenticate DPoP | error = use_dpop_nonce , DPoP-Nonce (header)
