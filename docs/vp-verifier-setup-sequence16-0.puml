@@ -4,7 +4,8 @@ title Digital Credential Presentation part 0 : verifier setup , once per verifie
 participant "Verifier Officer" as Officer
 participant "<color:#white>Verifier as a Service Portal</color>" as VSys #6A1B9A
 participant "<color:#white>VCVP Core</color>" as Core #3F51B5
-participant "<color:#white>one-core (Credential Engine)</color>" as Engine #chocolate
+participant "<color:#white>one-core (VP Engine)</color>" as VPEngine #chocolate
+participant "<color:#white>one-core (VC Engine)</color>" as VCEngine #chocolate
 participant "<color:#white>HSM (AWS KMS)</color>" as HSM #darkgoldenrod
 participant "<color:#white>ETDA Trusted List (CDN)</color>" as Trust #0B2E6B
 
@@ -12,12 +13,12 @@ note right of Officer #wheat:[SPEC] Verifier Officer = staff of the verifier age
 
 note over Officer,Trust #khaki: 0. Verifier Setup (once per verifier agency , not per request)
 note right of Core #wheat:[SPEC] Verifier organisation , verifier key and verifier DID are prepared in the setup phase , VCVP does not create them during verification\nThe verifier is registered with ETDA and listed in the Verifier Trusted List (ver.txt) with its public key , allowed claims and purposes\nTrusted issuers are decided by the Issuer Trusted List , the verifier does not configure them
-note over Engine,HSM #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.2.1 G-07 (MAY)  verifier key in soft key , TEE / WSCD or HSM\n• 12.2.1 (MUST)  verifier public key in the Verifier Trusted List entry or a did:web DID document at /.well-known/did.json
-note over Engine,HSM #wheat:[SPEC] the engine verifier DID resolves under a path , so the key is published in the Verifier Trusted List entry | verifier keys in AWS KMS
-note over Engine,HSM #wheat:[STANDARD] OpenID4VP 1.0\n• 8.3  the wallet encrypts the response to a key from client_metadata jwks\nNIST SP 800-57 Part 1 Rev. 5\n• 9.5.3.2  the more copies of a key , the more exposure
-note over Engine,HSM #wheat:[SPEC] the verifier DID has a keyAgreement key in AWS KMS (KEY_AGREEMENT , not exportable) , the engine puts it in client_metadata and decrypts the response\nVCVP Core also decrypts the response with it to check the issuer before the engine (VP part 2 , section 7.2) | no copy of the private key
-note over Engine,HSM #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.1.2 (MUST)  create and verify EdDSA and ES256\n• 11.2 (MUST)  issuers and verifiers accept both
-note over Engine,HSM #wheat:[SPEC] AWS KMS key specs : ECC_NIST_P256 (ES256) , ECC_NIST_EDWARDS25519 (Ed25519 , signing only)
+note over VPEngine,HSM #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.2.1 G-07 (MAY)  verifier key in soft key , TEE / WSCD or HSM\n• 12.2.1 (MUST)  verifier public key in the Verifier Trusted List entry or a did:web DID document at /.well-known/did.json
+note over VPEngine,HSM #wheat:[SPEC] the engine verifier DID resolves under a path , so the key is published in the Verifier Trusted List entry | verifier keys in AWS KMS
+note over VPEngine,HSM #wheat:[STANDARD] OpenID4VP 1.0\n• 8.3  the wallet encrypts the response to a key from client_metadata jwks\nNIST SP 800-57 Part 1 Rev. 5\n• 9.5.3.2  the more copies of a key , the more exposure
+note over VPEngine,HSM #wheat:[SPEC] the verifier DID has a keyAgreement key in AWS KMS (KEY_AGREEMENT , not exportable) , the engine puts it in client_metadata and decrypts the response\nVCVP Core also decrypts the response with it to check the issuer before the engine (VP part 2 , section 7.2) | no copy of the private key
+note over VPEngine,HSM #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.1.2 (MUST)  create and verify EdDSA and ES256\n• 11.2 (MUST)  issuers and verifiers accept both
+note over VPEngine,HSM #wheat:[SPEC] AWS KMS key specs : ECC_NIST_P256 (ES256) , ECC_NIST_EDWARDS25519 (Ed25519 , signing only)
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.8 (MUST)  identity , key , status , validity period and scope checked from the Trusted List\n• page 12.1 , 12.1.4 (MUST)  reject the trust decision when they cannot be confirmed\n• page 12.1 , 12.1.6 (MUST NOT)  a list without status or scope is not used for real
 note right of Core #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : no fields yet for entity and service status , validity period , VC types of issuers , allowed claims , purposes and wallet type (9.8 , 12.1.4)\nquestion : which fields will list them , and when
 note right of Core #wheat:[SPEC] decided by ETDA after discussion : these Trusted List fields are phase 2 work , not in phase 1
@@ -28,12 +29,12 @@ note right of Core #wheat:[SPEC] steps in the ETDA Trusted List Load sequence (f
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.1 (MUST)  the verifier fetches iss.txt and wp.txt
 note right of Core #wheat:[SPEC] Trusted List not usable (TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE) : the calling step answers 503 Service Unavailable + Retry-After: 300\nnot the trust failure reason of that step , as in the ETDA Trusted List Load sequence
 
-note over Officer,Engine #khaki: 0.2 Find the published schema of the issuer (CredentialSchemas table of VCVP)
+note over Officer,VPEngine #khaki: 0.2 Find the published schema of the issuer (CredentialSchemas table of VCVP)
 note right of Core #wheat:[SPEC] the CredentialSchemas table holds the schemas that issuers on this VCVP created at VCVP Core 05 (Status = ACTIVE)\nschemas of other systems are added to this table by the VCVP administrator , procedure not designed yet
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.8 (MUST)  scope of an issuer = VC types and claims it may issue , checked from the Trusted List
 note right of Core #B3E5FC:[WORKAROUND] VCVP Core 46 searches schemas in the CredentialSchemas table of VCVP (Status = ACTIVE , no engine call)\nbecause the Trusted List has no credential types per issuer yet (Thai VC ARF 2.0 DRAFT 0 9.8 , ETDA moved it to phase 2) and there is no central credential schema registry to search (3.3 , no ETDA API yet)\nremove this endpoint when ETDA publishes credential types in the Trusted List or a central credential schema registry , together with the [WORKAROUND] step of VCVP Core 22
-Officer->VSys: Search the published schemas (issuer , credential type)
-VSys->Core: List published schemas + Consumer-Key + Token | GET /api/credential-schema/v1/published (VCVP Core 46)\nissuer_org_code (optional) , credential_type_name (optional)
+Officer->VSys: Search the published schemas (issuer , credential type , vct)
+VSys->Core: List published schemas + Consumer-Key + Token | GET /api/credential-schema/v1/published (VCVP Core 46)\nissuer_org_code (optional) , credential_type_name (optional) , ecosystem_schema_id (optional)
 Core->Core: Check Consumer-Key and Token , caller channel , ActorType = OFFICER\nvalidate caller authorization
 alt Consumer-Key or Token invalid or missing
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 46 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
@@ -44,14 +45,14 @@ else Caller not authorized
     VSys<--Core: 403 | failure_reason = CALLER_NOT_AUTHORIZED
     Officer<--VSys: Show error , no schemas shown
 else Caller authorized
-    Core->Core: Read CredentialSchemas (Status = ACTIVE) of the issuer organisations , filtered by the query , no match gives an empty list\nnames of the schema from CredentialSchemas , OrgCode and name of the issuer from Organizations\nCredentialTypes only to match credential_type_name (NameEn or NameLocal)
+    Core->Core: Read CredentialSchemas (Status = ACTIVE) of the issuer organisations , filtered by the query , no match gives an empty list\nnames of the schema from CredentialSchemas , OrgCode and name of the issuer from Organizations\nCredentialTypes only to match credential_type_name (NameEn or NameLocal)\necosystem_schema_id matches Formats[].EcosystemSchemaId exactly (every character) , the result may list several organisations
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 46 : who searched the published schemas , with the query
     VSys<--Core: 200 | items [ org_code , organization_name , credential_type_id , name_en , name_local ,\ncredential_schema_id , formats [ format , ecosystem_schema_id ] ]
     Officer<--VSys: Published schemas of the issuers
 end
 Officer->VSys: Choose one schema to verify (CredentialSchemaId)
 
-note over Officer,Engine #khaki: 0.2.1 Import the published schema of the issuer
+note over Officer,VPEngine #khaki: 0.2.1 Import the published schema of the issuer
 note right of Core #wheat:[SPEC] VCVPAuditLog for every request , also those rejected at the Consumer-Key check (OrgCode and Actor empty) , kept 7 years
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.6 , 8.8 (MUST)  audit log at least 7 years
 Officer->VSys: Import the chosen schema
@@ -82,16 +83,16 @@ else Caller authorized
         VSys<--Core: 409 | failure_reason = SCHEMA_ALREADY_IMPORTED
         Officer<--VSys: Show error , schema already imported
     else Not imported yet
-    Core->Engine: Get the source schema from the issuer engine | GET /ssi/schema/v2/{id}
+    Core->VCEngine: Get the source schema from the issuer engine | GET /ssi/schema/v2/{id}
     alt Source schema not found (engine BR_0006)
-        Engine-->Core: 404 BR_0006
+        VCEngine-->Core: 404 BR_0006
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 22 (FailureReason = SCHEMA_NOT_FOUND , EngineCalls)
         VSys<--Core: 403 | failure_reason = SCHEMA_NOT_FOUND
         Officer<--VSys: Show error , schema not imported
     else Source schema found
-    Engine-->Core: schema (formats[].ecosystemSchemaId , claims[] key , mappings.technicalKey)
-    Core->Engine: Get the type metadata | GET /ssi/vct/v2/{orgId}/{id}/SD_JWT_VC (same engine endpoint as VCVP Core 18)
-    Engine-->Core: type metadata document
+    VCEngine-->Core: schema (formats[].ecosystemSchemaId , claims[] key , mappings.technicalKey)
+    Core->VCEngine: Get the type metadata | GET /ssi/vct/v2/{orgId}/{id}/SD_JWT_VC (same engine endpoint as VCVP Core 18)
+    VCEngine-->Core: type metadata document
     note right of Core #wheat:[STANDARD] SD-JWT VC draft-19\n• 5.3.1  type metadata retrieved from the URL in vct (HTTP GET)\n• 5.2 (REQUIRED)  vct in the type metadata document\n• 5.3 (MUST)  vct in the reference identical to the vct of the credential\n• 5.3 (MUST)  vct#integrity is an integrity metadata string (section 6)\n• 6  hash of the type metadata document octets
     Core->Core: Check vct in the document = the vct used to fetch it (Formats[].EcosystemSchemaId of the source schema)
     alt Type metadata not retrieved or vct does not match
@@ -100,14 +101,14 @@ else Caller authorized
         Officer<--VSys: Show error , schema not imported
     else Type metadata matches
     Core->Core: TypeMetadataIntegrity = sha256 of the document octets (sha256-... as in vct#integrity)
-    Core->Engine: Import schema into the verifier organisation | POST /api/credential-schema/v2/import
+    Core->VPEngine: Import schema into the verifier organisation | POST /api/credential-schema/v2/import
     alt A schema with the same vct already exists in the verifier organisation (engine BR_0007)
-        Engine-->Core: 400 BR_0007
+        VPEngine-->Core: 400 BR_0007
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 22 (FailureReason = SCHEMA_ALREADY_IMPORTED , EngineCalls)
         VSys<--Core: 409 | failure_reason = SCHEMA_ALREADY_IMPORTED
         Officer<--VSys: Show error , schema already imported
     else Imported
-    Engine-->Core: id
+    VPEngine-->Core: id
     Core->Core: [DATA STORE] Store ImportedCredentialSchemas table (ImportedCredentialSchemaId = id , OrganizationId , Source ,\nTypeMetadataIntegrity , EngineId , Status = ACTIVE)
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 22 : who imported which issuer schema (EngineCalls)
     VSys<--Core: 200 | imported_credential_schema_id
@@ -119,7 +120,7 @@ else Caller authorized
     end
 end
 
-note over Officer,Engine #khaki: 0.2.2 Read the imported schema (claims to choose)
+note over Officer,VPEngine #khaki: 0.2.2 Read the imported schema (claims to choose)
 Officer->VSys: Open the imported schema to choose the claims to request
 VSys->Core: Get imported schema claims + Consumer-Key + Token | GET /api/credential-schema/v1/imported/{imported_credential_schema_id} (VCVP Core 45)
 Core->Core: Check Consumer-Key and Token , validate caller authorization\nFind ImportedCredentialSchemaId in ImportedCredentialSchemas table (Status = ACTIVE)\nCheck the caller has an ACTIVE OrgRole in ImportedCredentialSchemas.OrganizationId
@@ -136,15 +137,15 @@ else Caller has no ACTIVE OrgRole in the organisation that owns the schema
     VSys<--Core: 403 | failure_reason = CALLER_NOT_AUTHORIZED
     Officer<--VSys: Show error , claims not shown
 else Schema found
-    Core->Engine: Get imported schema | GET /api/credential-schema/v2/{id}
-    Engine-->Core: schema (claims[] key , datatype , required , translations , mappings)
+    Core->VPEngine: Get imported schema | GET /api/credential-schema/v2/{id}
+    VPEngine-->Core: schema (claims[] key , datatype , required , translations , mappings)
     Core->Core: source and status from ImportedCredentialSchemas , type_metadata_integrity of the SD_JWT_VC format from TypeMetadataIntegrity\nversion and claims[].data_category from CredentialSchemas (row = Source.CredentialSchemaId , claim matched by Path = claims[].key)
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 45 : who read which imported schema (EngineCalls)
     VSys<--Core: 200 | created_date , last_modified , org_code , source ,\nname_en , name_local , description_en , description_local , version , formats ,\nsuspendable , revocable , requires_wallet_instance_attestation , key_storage_security , claims , status
     Officer<--VSys: Claims that can be requested
 end
 
-note over Officer,Engine #khaki: 0.3 Define what to request (verification template)
+note over Officer,VPEngine #khaki: 0.3 Define what to request (verification template)
 Officer->VSys: Define verification template (claims to request , chosen from the result of VCVP Core 45)
 VSys->Core: Create verification template + Consumer-Key + Token | POST /api/proof-schema/v1 (VCVP Core 23)\norg_code , name_en , name_local , expire_duration_sec , inputs [ imported_credential_schema_id , claims ]
 Core->Core: Check Consumer-Key and Token , validate caller authorization
@@ -159,8 +160,8 @@ else Caller not authorized
 else Caller authorized
     Core->Core: Map org_code to OrganizationId (Organizations) , not found 403 FailureReason = ORGANISATION_NOT_FOUND
     Core->Core: Find ImportedCredentialSchemas of each inputs[] (Status = ACTIVE)\nnot found or OrganizationId of the row is not the OrganizationId of org_code : 403 FailureReason = SCHEMA_NOT_FOUND\nCheck the caller has an ACTIVE OrgRole in ImportedCredentialSchemas.OrganizationId , otherwise 403 FailureReason = CALLER_NOT_AUTHORIZED
-    Core->Engine: Get imported schema | GET /api/credential-schema/v2/{id}
-    Engine-->Core: schema (claims[] id , key)
+    Core->VPEngine: Get imported schema | GET /api/credential-schema/v2/{id}
+    VPEngine-->Core: schema (claims[] id , key)
     Core->Core: Check the requested claims exist in claims[].key of that schema , otherwise 400 FailureReason = REQUEST_REJECTED
     Core->Core: Check expire_duration_sec : when sent , an integer from 1 to 3600 , otherwise 400 FailureReason = REQUEST_REJECTED | not sent : 3600
     note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 7.2 item 3  the wallet enforces the purposes and allowed claims of the verifier\n• appendix 8.2 E.1.5 (MUST)  claims path and purpose within the scope allowed for the verifier , otherwise rejected
@@ -168,11 +169,11 @@ else Caller authorized
     Core->Core: Check the requested claims are within the claims allowed for this verifier in the Verifier Trusted List (ver.txt)
     note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 7.7 item 3 (MUST)  check the schema version , not the type name only
     note right of Core #wheat:[SPEC] the vct contains the schema id , a new schema version is a new schema with a new vct and new type metadata\nthe vct and vct#integrity of the presented credential are checked in VP part 2 , section 7.2
-    note right of Engine #wheat:[ENGINE RULE] expireDuration is how long the engine keeps the received claim values after the check\n(retainUntilDate = completedDate + expireDuration , then the engine deletes them)\nIt is not the lifetime of the verification link (the link lives 1 hour)
+    note right of VPEngine #wheat:[ENGINE RULE] expireDuration is how long the engine keeps the received claim values after the check\n(retainUntilDate = completedDate + expireDuration , then the engine deletes them)\nIt is not the lifetime of the verification link (the link lives 1 hour)
     note right of Core #wheat:[STANDARD] RFC 9901 (SD-JWT)\n• 10.2 (SHOULD NOT)  after verification the verifier does not store the issuer-signed JWT or the disclosures
     note right of Core #wheat:[SPEC] expireDuration = expire_duration_sec (default 3600 , at most 3600)
-    Core->Engine: Define verification requirements | POST /api/proof-schema/v1\nname , organisationId , expireDuration , proofInputSchemas [ credentialSchemaId , claimSchemas [ id , required ] ]
-    Engine-->Core: id
+    Core->VPEngine: Define verification requirements | POST /api/proof-schema/v1\nname , organisationId , expireDuration , proofInputSchemas [ credentialSchemaId , claimSchemas [ id , required ] ]
+    VPEngine-->Core: id
     Core->Core: [DATA STORE] Store VerificationTemplates table (VerificationTemplateId = id from the engine)
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 23 (EventType = VERIFICATION_TEMPLATE_CREATED) : who created which verification template (EngineCalls)
     VSys<--Core: 200 | verification_template_id

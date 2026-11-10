@@ -8,7 +8,8 @@ participant "<color:#white>DW Core</color>" as DW #steelblue
 participant "Verifier Officer" as Officer
 participant "<color:#white>Verifier Toolkit</color>" as VSys #6A1B9A
 participant "<color:#white>VCVP Core</color>" as Core #3F51B5
-participant "<color:#white>one-core (Credential Engine)</color>" as Engine #chocolate
+participant "<color:#white>one-core (VP Engine)</color>" as VPEngine #chocolate
+participant "<color:#white>one-core (VC Engine)</color>" as VCEngine #chocolate
 participant "<color:#white>HSM (AWS KMS)</color>" as HSM #darkgoldenrod
 participant "<color:#white>ETDA Trusted List (CDN)</color>" as Trust #0B2E6B
 
@@ -32,22 +33,22 @@ Mini->DW: Start verification + Token | POST /dw/v1/presentation/start (DW endpoi
 note right of DW #wheat:[STANDARD] OpenID4VP 1.0\n• 5.1 (MUST)  no request_uri_method , GET as in RFC 9101
 DW->DW: Validate Token → CitizenId\nParse openid4vp:// → client_id , request_uri
 DW->Core: Read request object from request_uri | GET /ssi/openid4vp/final-1.0/{id}/client-request (VCVP Core 26)
-Core->Engine: Read request object | GET /ssi/openid4vp/final-1.0/{id}/client-request
-note over Engine,HSM #f4cccc: 1.1 Verifier signs the request object (signing point 1)
-note right of Engine #wheat:[ENGINE RULE] signed with the verifier DID key in AWS KMS , kid in the JOSE header = verificationMethod id of that key\nno verifier attestation (client_id prefix decentralized_identifier)\nThe engine signs again each time the request object is read (nonce stays the same)
-Engine->HSM: Sign request object (JWS ES256) with the verifier key
-HSM-->Engine: Signature
-note right of Engine #wheat:[STANDARD] OpenID4VP 1.0\n• 5 (MUST NOT)  no request object without typ = oauth-authz-req+jwt\n• 5.1  dcql_query\n• 5.2 (REQUIRED)  nonce , response_mode\n• 5.8  aud of a request object\n• 8.2 (REQUIRED)  response_uri\n• 8.3.1  response mode direct_post.jwt
-note right of Engine #wheat:[ENGINE RULE] request object of the engine\nheader : typ = oauth-authz-req+jwt , alg = ES256 , kid = verifier DID verificationMethod\npayload : client_id = decentralized_identifier:{verifier DID} , nonce , state , response_type = vp_token\nresponse_mode = direct_post.jwt , response_uri , dcql_query , client_metadata (jwks , vp_formats_supported ,\nencrypted_response_enc_values_supported)
-Engine-->Core: Request object (JWT , application/oauth-authz-req+jwt)
+Core->VPEngine: Read request object | GET /ssi/openid4vp/final-1.0/{id}/client-request
+note over VPEngine,HSM #f4cccc: 1.1 Verifier signs the request object (signing point 1)
+note right of VPEngine #wheat:[ENGINE RULE] signed with the verifier DID key in AWS KMS , kid in the JOSE header = verificationMethod id of that key\nno verifier attestation (client_id prefix decentralized_identifier)\nThe engine signs again each time the request object is read (nonce stays the same)
+VPEngine->HSM: Sign request object (JWS ES256) with the verifier key
+HSM-->VPEngine: Signature
+note right of VPEngine #wheat:[STANDARD] OpenID4VP 1.0\n• 5 (MUST NOT)  no request object without typ = oauth-authz-req+jwt\n• 5.1  dcql_query\n• 5.2 (REQUIRED)  nonce , response_mode\n• 5.8  aud of a request object\n• 8.2 (REQUIRED)  response_uri\n• 8.3.1  response mode direct_post.jwt
+note right of VPEngine #wheat:[ENGINE RULE] request object of the engine\nheader : typ = oauth-authz-req+jwt , alg = ES256 , kid = verifier DID verificationMethod\npayload : client_id = decentralized_identifier:{verifier DID} , nonce , state , response_type = vp_token\nresponse_mode = direct_post.jwt , response_uri , dcql_query , client_metadata (jwks , vp_formats_supported ,\nencrypted_response_enc_values_supported)
+VPEngine-->Core: Request object (JWT , application/oauth-authz-req+jwt)
 note right of Core #wheat:[DATA STORE] used to find this request when the wallet asks for verifier information or cancels
 Core->Core: [DATA STORE] Store state and nonce of the request object in Verifications table\n(state = engine interaction id → InteractionId)
 Core->Core: [AUDIT LOG] Write audit record of /ssi client-request (EngineCalls , Correlation.VerificationId)
 DW<--Core: Request object (signed JWT)
 DW->DW: Read kid from the JOSE header of the request object (the verifier DID before #)
 DW->Core: Get verifier DID document | GET /ssi/did-web/v1/{id}/did.json (VCVP Core 17)
-Core->Engine: Get verifier DID document | GET /ssi/did-web/v1/{id}/did.json
-Engine-->Core: DID document | verificationMethod[] { id , publicKeyJwk }
+Core->VPEngine: Get verifier DID document | GET /ssi/did-web/v1/{id}/did.json
+VPEngine-->Core: DID document | verificationMethod[] { id , publicKeyJwk }
 DW<--Core: DID document
 
 note over DW,Trust #violet: 1.2 DW Core checks the verifier for the wallet (TC-1)
@@ -193,7 +194,7 @@ else Presentation ready
     Mini->Mini: Continue to submit the presentation (section 7)
 end
 
-note over Mini,Engine #orange: 7. DW Core submits the presentation (/dw/v1/presentation/submit)
+note over Mini,VPEngine #orange: 7. DW Core submits the presentation (/dw/v1/presentation/submit)
 Mini->DW: Submit presentation + Token | POST /dw/v1/presentation/submit (DW endpoint 14)\n(state , response , WIA request proof , bearer , wallet_attestation_pop , disclosed claim names)
 note right of DW #wheat:[SPEC] header x5c = wallet provider certificate (no iss) | cnf , wallet_name , wallet_version , wallet_solution_certification_information , wallet_link , client_status { status , exp }
 note right of DW #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 10.3.2 (MUST NOT)  the verifier gets no device capability data\n• 10.5.1 (SHOULD)  WUA once-only or in a batch\nEUDI TS3 v1.5.2\n• 2.2.1.1 (SHALL)  WIA time-to-live less than 24 hours
@@ -308,35 +309,35 @@ else Issuer trusted , KB-JWT fresh , credential type matches and status VALID
     Core->Core: Continue , send the same response (JWE) to the engine
 end
 group Engine verifies the VP (inside VCVP Core 29)
-    note right of Engine #wheat:[ENGINE RULE] the response endpoint accepts the extra form parameters wallet_attestation and wallet_attestation_pop\nthe VP is ACCEPTED with or without them , VCVP Core forwards the request as received
-    Core->Engine: Submit presentation | POST /ssi/openid4vp/final-1.0/response\nresponse , wallet_attestation , wallet_attestation_pop
+    note right of VPEngine #wheat:[ENGINE RULE] the response endpoint accepts the extra form parameters wallet_attestation and wallet_attestation_pop\nthe VP is ACCEPTED with or without them , VCVP Core forwards the request as received
+    Core->VPEngine: Submit presentation | POST /ssi/openid4vp/final-1.0/response\nresponse , wallet_attestation , wallet_attestation_pop
 
-    note over Engine,HSM #orange: 8. Engine verifies the VP (holder binding and status)
-    Engine->HSM: Decrypt the response (ECDH-ES) with the verifier key
-    HSM-->Engine: { vp_token , state }
-    note right of Engine #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.9 steps 1 , 2 , 3  holder binding , issuer , status\nOpenID4VP 1.0\n• 8.6 (MUST)  validate the VP Token\n• Appendix B.3.6 (MUST)  KB-JWT nonce and aud
-    Engine->Engine: Match state to the proof request
-    Engine->Engine: Verify KB-JWT with cnf.jwk (aud = client_id , nonce , iat current) , recompute sd_hash
-    note right of Engine #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.10 (MUST)  the Trusted List check comes first\n• 8.5 (MUST)  DID resolution follows a passed TC-3
-    note right of Engine #wheat:[SPEC] VCVP Core checks the issuer in section 7.2 before the engine , the engine resolves the DID and reads the status list only for a trusted issuer
-    Engine->Engine: Resolve the issuer DID , verify the issuer JWS and every disclosure against _sd
-    Engine->Engine: Check the claims of the proof schema are present (DCQL)
-    note right of Engine #wheat:[STANDARD] Token Status List draft-21\n• 5.1 (MUST)  typ and sub\n• 8.3 (MUST)  exp checked when present , idx out of range rejected\nThai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.9 step 3  unknown status values are rejected\n• 8.4.4 (MUST)  fail closed
-    note right of Engine #wheat:[ENGINE RULE] the engine checks only the status list signature and the value at idx , not typ , sub , exp or the bits (checked in engine 1.89.3 source)\nVCVP Core checks the rest in section 7.2
-    note right of Engine #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : section 13.7.1 (informative , MUST) and SC-24 : the status_list.uri comes from a source allowed in the Trusted List , the Thai profile has no field for it yet , the engine uses the uri in the credential\nquestion : which Trusted List field lists the allowed status list sources
-    note right of Engine #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : section 13.2 (informative , MUST) : the profile fixes one revision of Token Status List , draft-18 and draft-21 are not interchangeable , the engine and these diagrams follow draft-21\nquestion : which revision
+    note over VPEngine,HSM #orange: 8. Engine verifies the VP (holder binding and status)
+    VPEngine->HSM: Decrypt the response (ECDH-ES) with the verifier key
+    HSM-->VPEngine: { vp_token , state }
+    note right of VPEngine #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.9 steps 1 , 2 , 3  holder binding , issuer , status\nOpenID4VP 1.0\n• 8.6 (MUST)  validate the VP Token\n• Appendix B.3.6 (MUST)  KB-JWT nonce and aud
+    VPEngine->VPEngine: Match state to the proof request
+    VPEngine->VPEngine: Verify KB-JWT with cnf.jwk (aud = client_id , nonce , iat current) , recompute sd_hash
+    note right of VPEngine #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.10 (MUST)  the Trusted List check comes first\n• 8.5 (MUST)  DID resolution follows a passed TC-3
+    note right of VPEngine #wheat:[SPEC] VCVP Core checks the issuer in section 7.2 before the engine , the engine resolves the DID and reads the status list only for a trusted issuer
+    VPEngine->VPEngine: Resolve the issuer DID , verify the issuer JWS and every disclosure against _sd
+    VPEngine->VPEngine: Check the claims of the proof schema are present (DCQL)
+    note right of VPEngine #wheat:[STANDARD] Token Status List draft-21\n• 5.1 (MUST)  typ and sub\n• 8.3 (MUST)  exp checked when present , idx out of range rejected\nThai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.9 step 3  unknown status values are rejected\n• 8.4.4 (MUST)  fail closed
+    note right of VPEngine #wheat:[ENGINE RULE] the engine checks only the status list signature and the value at idx , not typ , sub , exp or the bits (checked in engine 1.89.3 source)\nVCVP Core checks the rest in section 7.2
+    note right of VPEngine #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : section 13.7.1 (informative , MUST) and SC-24 : the status_list.uri comes from a source allowed in the Trusted List , the Thai profile has no field for it yet , the engine uses the uri in the credential\nquestion : which Trusted List field lists the allowed status list sources
+    note right of VPEngine #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : section 13.2 (informative , MUST) : the profile fixes one revision of Token Status List , draft-18 and draft-21 are not interchangeable , the engine and these diagrams follow draft-21\nquestion : which revision
     group Engine gets the status list through VCVP Core 31
-        Engine->Core: Get the status list | GET /ssi/revocation/v1/list/{id} (VCVP Core 31)
-        Core->Engine: Get the status list | GET /ssi/revocation/v1/list/{id}
-        Engine-->Core: Status List JWT (typ statuslist+jwt)
-        Core-->Engine: Status List JWT
+        VPEngine->Core: Get the status list | GET /ssi/revocation/v1/list/{id} (VCVP Core 31)
+        Core->VCEngine: Get the status list | GET /ssi/revocation/v1/list/{id}
+        VCEngine-->Core: Status List JWT (typ statuslist+jwt)
+        Core-->VPEngine: Status List JWT
     end
-    Engine->Engine: Check the status at idx = 0x00 (VALID)\nthe verifier engine caches the list for 300 seconds
+    VPEngine->VPEngine: Check the status at idx = 0x00 (VALID)\nthe verifier engine caches the list for 300 seconds
 
     alt Engine verification failed (signature / KB-JWT / nonce / status / claims)
-        Engine->Engine: Proof state PENDING → ERROR
-        note right of Engine #wheat:[ENGINE RULE] the engine answers 400 invalid_request without a reason (revoked credential , wrong nonce)
-        Engine-->Core: 400 | error = invalid_request
+        VPEngine->VPEngine: Proof state PENDING → ERROR
+        note right of VPEngine #wheat:[ENGINE RULE] the engine answers 400 invalid_request without a reason (revoked credential , wrong nonce)
+        VPEngine-->Core: 400 | error = invalid_request
         Core->Core: Update Verifications table Status = COMPLETED , Result = INVALID , Reason = PRESENTATION_INVALID
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29 (FailureReason = PRESENTATION_INVALID , EngineCalls , no claim values)
         DW<--Core: 400 | error = invalid_request , vcvp_failure_reason = PRESENTATION_INVALID
@@ -344,8 +345,8 @@ group Engine verifies the VP (inside VCVP Core 29)
         Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = VERIFIER_REJECTED
         Mini-->User: Sharing failed
     else Engine verification passed
-        Engine->Engine: Proof state PENDING → ACCEPTED\nstore disclosed claim values until retainUntilDate
-        Engine-->Core: 200 {}
+        VPEngine->VPEngine: Proof state PENDING → ACCEPTED\nstore disclosed claim values until retainUntilDate
+        VPEngine-->Core: 200 {}
 
         Core->Core: [DATA STORE] Update Verifications table Status = COMPLETED , Result = VALID , VerifiedAt
         Core->Core: [AUDIT LOG] Write audit record of VCVP Core 29 : the VP was accepted (TrustCheck , EngineCalls , no claim values)
@@ -365,18 +366,18 @@ note over Officer,Trust #khaki: 9. Verifier gets the result
 note right of Core #wheat:[STANDARD] OpenID4VP 1.0\n• 13.3 (informative)  without redirect_uri the Verifier queries for the result with its own transaction id
 note right of Core #wheat:[SPEC] the transaction id here is VerificationId
 note right of Trust #FFCDD2:[PENDING] waiting for a VCVP team decision | OpenID4VP 1.0\nissue : section 14.2 : the Response Code against session fixation does not apply to cross-device flows , Verifiers are RECOMMENDED (SHOULD) to add other mitigations (draft-ietf-oauth-cross-device-security)\nquestion : which mitigation does VCVP use
-note right of Engine #wheat:[ENGINE RULE] sent right after the state changes , body has no claim values , no signature and no auth header\nINTERACTION_EXPIRED is not sent , a failed delivery is tried once more each time task WEBHOOK_NOTIFY runs , 5 tries in total then dropped (checked in engine 1.89.3 source)
+note right of VPEngine #wheat:[ENGINE RULE] sent right after the state changes , body has no claim values , no signature and no auth header\nINTERACTION_EXPIRED is not sent , a failed delivery is tried once more each time task WEBHOOK_NOTIFY runs , 5 tries in total then dropped (checked in engine 1.89.3 source)
 note right of Core #wheat:[SPEC] the engine sends the webhook to the webhookDestinationUrl that VCVP Core set on every proof request (VP part 1 , section 3)\nVCVP policy : VCVP Core 30 is not reachable from outside , only the engine inside the VCVP network can call it\nand the URL carries webhook_token , the secret of this request (Verifications.WebhookSecretHash)
-Engine->Core: Engine webhook | POST /api/webhook/v1/proof-request (VCVP Core 30)\n{ proofId , status , eventTimestamp }
+VPEngine->Core: Engine webhook | POST /api/webhook/v1/proof-request (VCVP Core 30)\n{ proofId , status , eventTimestamp }
 Core->Core: Find Verifications table with VerificationId = proofId\nhash webhook_token and compare with Verifications.WebhookSecretHash
 alt proofId not in Verifications table
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 30 (FailureReason = VERIFICATION_NOT_FOUND)
-    Engine<--Core: 400
+    VPEngine<--Core: 400
 else webhook_token missing or does not match
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 30 (FailureReason = WEBHOOK_SECRET_INVALID) , no data changed
-    Engine<--Core: 401
+    VPEngine<--Core: 401
 else webhook_token matches
-    Core-->Engine: 200
+    Core-->VPEngine: 200
     note right of Core #wheat:[DATA STORE] kept from the first ACCEPTED , later engine state changes do not overwrite it
     Core->Core: [DATA STORE] Keep the result in Verifications table (VerifiedAt , Status , Result) from the webhook status\nACCEPTED → Status = COMPLETED , Result = VALID | ERROR → Status = COMPLETED , Result = INVALID | REJECTED → Status = REJECTED
     alt Verifications.CallbackUrl has a value
@@ -403,8 +404,8 @@ note over Officer,Core #khaki: 9.1 VCVP Core 32 answers each call (both options)
 VSys->Core: Get verification result + Consumer-Key + Token | GET /api/proof-request/v1/{verification_id} (VCVP Core 32)
 Core->Core: Check Consumer-Key and Token , validate caller authorization , otherwise 401 FailureReason = CALLER_NOT_AUTHENTICATED / 403 FailureReason = CALLER_NOT_AUTHORIZED\nVerificationId not found 403 FailureReason = VERIFICATION_NOT_FOUND , caller not an officer of the organisation that owns the request 403 FailureReason = CALLER_NOT_AUTHORIZED
 Core->Core: Read Verifications table\nresult kept in section 7.2 , 8 or 9 , or the wallet side status (REJECTED / VERIFIER_NOT_TRUSTED) , a TC-1 failure is not sent to VCVP Core (the request expires)
-Core->Engine: Get proof request | GET /api/proof-request/v1/{id}
-Engine-->Core: organisationId , state (PENDING / ACCEPTED / ERROR / INTERACTION_EXPIRED) ,\nproofInputs[].claims[] (path , value) , completedDate , retainUntilDate
+Core->VPEngine: Get proof request | GET /api/proof-request/v1/{id}
+VPEngine-->Core: organisationId , state (PENDING / ACCEPTED / ERROR / INTERACTION_EXPIRED) ,\nproofInputs[].claims[] (path , value) , completedDate , retainUntilDate
 Core->Core: [DATA STORE] Store Verifications DisclosedClaims (names only)\nkeep the result only when Verifications is still PENDING and the engine has ended (ACCEPTED / ERROR / REJECTED , INTERACTION_EXPIRED → EXPIRED)
 note right of Core #wheat:[ENGINE RULE] after ACCEPTED a second response with the same state is refused (400 invalid_request) and the proof stays ACCEPTED
 alt ACCEPTED and TC-3 passed
@@ -422,14 +423,14 @@ else Wallet side status kept in Verifications table , or engine state PENDING / 
 end
 Core->Core: [AUDIT LOG] Write audit record of VCVP Core 32\n(EventType = VERIFICATION_RESULT_READ , Actor OFFICER , EngineCalls GET , Correlation.VerificationId) , no claim values
 
-note over Core,Engine #khaki: 9.2 VCVP Core deletes the claim values (periodic job)
+note over Core,VPEngine #khaki: 9.2 VCVP Core deletes the claim values (periodic job)
 note right of Core #wheat:[SPEC] VCVP policy : grace period 300 seconds by default after ClaimsDeliveredAt\nif nobody reads the result , the engine deletes the claim values itself at expireDuration (retainUntilDate)
 group VCVP Core claim-delete job (periodic)
     Core->Core: Find Verifications rows with ClaimsDeliveredAt older than the grace period and ClaimsDeletedAt null
     loop Each row found
-        Core->Engine: Delete the claim values | DELETE /api/proof-request/v1/{id}/claims
+        Core->VPEngine: Delete the claim values | DELETE /api/proof-request/v1/{id}/claims
         alt Deleted
-            Engine-->Core: 204
+            VPEngine-->Core: 204
             Core->Core: [DATA STORE] Verifications ClaimsDeletedAt
             Core->Core: [AUDIT LOG] Write audit record (EventType = VERIFICATION_CLAIMS_DELETED , Actor SYSTEM , EngineCalls DELETE claims , Correlation.VerificationId)
         else Delete failed

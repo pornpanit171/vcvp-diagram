@@ -7,7 +7,7 @@ participant "<color:#white>Document Wallet (Miniapp)</color>" as Mini #2E7D32
 participant "<color:#white>DW Core</color>" as DW #steelblue
 participant "<color:#white>Government API Source of Truth</color>" as Agency #gray
 participant "<color:#white>VCVP Core</color>" as Core #3F51B5
-participant "<color:#white>one-core (Credential Engine)</color>" as Engine #chocolate
+participant "<color:#white>one-core (VC Engine)</color>" as VCEngine #chocolate
 participant "<color:#white>ETDA Trusted List (CDN)</color>" as Trust #0B2E6B
 
 
@@ -117,7 +117,7 @@ end
 note right of DW #wheat:[DATA STORE] identity assurance profile : identityAssuranceId , citizenId , IAL , AAL , KYC source , KYC timestamp , assurance expiry , last authentication method and time
 DW->DW: Load existing identity assurance profile
 
-note over DW,Engine #violet: 1.4 Get Schema Details
+note over DW,VCEngine #violet: 1.4 Get Schema Details
 note right of Core #wheat:[SPEC] two callers : DW Core (this flow) and agency systems (system to system) | steps marked caller channel = WALLET run only for DW Core
 note right of Core #wheat:[SPEC] VCVPAuditLog for every request , also those rejected at the Consumer-Key check (OrgCode and Actor empty) , kept 7 years
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.6 , 8.8 (MUST)  audit log at least 7 years
@@ -142,7 +142,7 @@ else Caller not authorized
 else Caller authorized
     Core->Core: Continue to Read Schema
 end
-note over DW,Engine #orange: 1.4.1 Read Schema
+note over DW,VCEngine #orange: 1.4.1 Read Schema
 Core->Core: Find credential_schema_id in CredentialSchemas table (Status = ACTIVE)
 alt Schema not found
     note right of Core #wheat:[SPEC] the credential type and schema are created by the issuing agency , not during issuance
@@ -171,9 +171,9 @@ else Schema found
 end
 
 
-note over DW,Engine #orange: 1.4.2 Read Schema Details
-Core->Engine: Get schema details | GET /api/credential-schema/v2/{CredentialSchemaId}
-Core<--Engine: 200 | schema details + Claims[] (ClaimId | Path | Name | Type | Required)
+note over DW,VCEngine #orange: 1.4.2 Read Schema Details
+Core->VCEngine: Get schema details | GET /api/credential-schema/v2/{CredentialSchemaId}
+Core<--VCEngine: 200 | schema details + Claims[] (ClaimId | Path | Name | Type | Required)
 Core->Core: required_loa from CredentialTypes.RequiredLoA (row of CredentialSchemas.CredentialTypeId)
 Core->Core: [AUDIT LOG] Write audit record of VCVP Core 07 : who read which schema (EngineCalls)
 DW<--Core: 200 | org_code , required_loa , schema details , claims [ claim_id , path , name_en , name_local , type , required ]
@@ -309,7 +309,7 @@ else Source data within MaxDataAgeDays
     Core->Core: Continue issuance
 end
 
-note over Core,Engine #orange: 5.1 Check Issuer Setup
+note over Core,VCEngine #orange: 5.1 Check Issuer Setup
 
 note right of Core #wheat:[SPEC] organisation , issuer key and DID are prepared by the agency in setup , missing one = no VC
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.7  DNSSEC for .go.th
@@ -333,7 +333,7 @@ else Organisation and issuer DID found , at most one ACTIVE key
     Core->Core: Continue
 end
 
-note over Core,Engine #orange: 5.2 Issuer Key Check
+note over Core,VCEngine #orange: 5.2 Issuer Key Check
 
 Core->Core: Check the issuer key from section 5.1 (Keys.Status , Keys.ExpiryDate)
 
@@ -401,15 +401,15 @@ else Trust validation passed
 end
 
 
-note over Core,Engine #orange: 6. Create Digital Credential and Offer
+note over Core,VCEngine #orange: 6. Create Digital Credential and Offer
 Core->Core: Check Formats of the request : every value is in CredentialSchemas.Formats and not repeated , otherwise 400 FailureReason = REQUEST_REJECTED
 Core->Core: Use ClaimId from the request as the engine claim id\n(claim_id returned by VCVP Core 07 from the engine schema)
-note right of Engine #wheat:[ENGINE RULE] the credential is created unsigned (state CREATED) , no status list index yet\nthe engine signs it when the wallet requests the credential (part 2 , VCVP Core 16)
+note right of VCEngine #wheat:[ENGINE RULE] the credential is created unsigned (state CREATED) , no status list index yet\nthe engine signs it when the wallet requests the credential (part 2 , VCVP Core 16)
 note right of Core #wheat:[SPEC] request : credentialSchemaId = CredentialSchemaId , issuer = IdentityId of the issuer , issuerKey = KeyId of the issuer key\nprotocol = OPENID4VCI_FINAL1 , claimValues [ claimId , path , value ] , formats = Formats of the request
-note right of Engine #wheat:[ENGINE RULE] the engine checks claimValues : claimId in the schema , required claims present , path matches claimId , value not empty , value matches the datatype
-Core->Engine: Create credential | POST /api/credential/v1
+note right of VCEngine #wheat:[ENGINE RULE] the engine checks claimValues : claimId in the schema , required claims present , path matches claimId , value not empty , value matches the datatype
+Core->VCEngine: Create credential | POST /api/credential/v1
 alt Claims rejected by the engine
-    Engine-->Core: 400 | BR_0003 / BR_0485 / BR_0204 / BR_0061
+    VCEngine-->Core: 400 | BR_0003 / BR_0485 / BR_0204 / BR_0061
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = REQUEST_REJECTED)
     DW<--Core: 400 | failure_reason = REQUEST_REJECTED
     DW->DW: Update issuance request status = FailureReason\n(credential not issued)
@@ -417,7 +417,7 @@ alt Claims rejected by the engine
     Mini-->User: Show error , credential not added (reason)
     note over User,Mini #wheat: Issuance stops here , credential not added
 else Credential created
-    Engine-->Core: { id } = CredentialId
+    VCEngine-->Core: { id } = CredentialId
 end
 
 note right of Core #wheat:[DATA STORE] Credentials table\nCredentialId = id from the engine (+ EngineId)\nCredentialSchemaId , IssuerOrganizationId , IssuerIdentityId , IssuerKeyId , CitizenHashId (hash of CitizenId , cannot be turned back , the raw CitizenId is not stored) , SyncDate\nExpiredAt (validity of the schema , CredentialSchemas.ValidityYears)\nOfferedFormats = every value of Formats with State = PENDING
@@ -426,21 +426,21 @@ note right of Core #wheat:[STANDARD] OpenID4VCI 1.0\n• 4.1.1  Credential Offer
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.1 D.3 (MUST)  tx_code from IAL2.1\n• appendix 8.1 D.2 (proposal)  tx_code recommended for IAL2.1 - 2.2\nOpenID4VCI 1.0\n• 3.5  tx_code by a second channel\n• 4.1.1  tx_code in the offer
 note right of Core #wheat:[SPEC] decided by ETDA after discussion (27 Oct 2026) : tx_code is optional\nthe issuing agency decides per credential type from the identity assurance assessment
 note right of Core #wheat:[CONDITION] When this runs : only for credential types with RequiredLoA IAL2.1 or higher\ntheir schema is created with transactionCode (NUMERIC , 6 digits) , IAL1 types have no transactionCode and skip the tx_code steps\nthe user must enter the code before the pre-authorized_code expires (300 seconds) ,\notherwise the user asks for a new code and the offer is renewed (part 2 section 8)
-Core->Engine: Create offer link | POST /api/credential/v1/{CredentialId}/share
+Core->VCEngine: Create offer link | POST /api/credential/v1/{CredentialId}/share
 alt Offer link not created (engine error)
-    Engine-->Core: Error
+    VCEngine-->Core: Error
     Core->Core: [DATA STORE] Update Credentials table : Status = PENDING , OfferUrl and OfferExpiresAt stay null
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 08 : which credential was issued , to whom , by which issuer key (TrustCheck , EngineCalls , Correlation.CredentialId)
     DW<--Core: 200 | credential_id , offer_url = null , issuer_trust (result , checked_at , registry_reference)
     DW->Core: Request offer link | POST /api/credential/v1/{credential_id}/share (VCVP Core 09)
     Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET , ActorType = CITIZEN\nValidate caller authorization
-    Core->Engine: Create offer link | POST /api/credential/v1/{CredentialId}/share
-    Engine-->Core: url , expiresAt , transactionCode (only when the schema has transactionCode)
+    Core->VCEngine: Create offer link | POST /api/credential/v1/{CredentialId}/share
+    VCEngine-->Core: url , expiresAt , transactionCode (only when the schema has transactionCode)
     Core->Core: [DATA STORE] Update the same credential in Credentials table : set OfferUrl and OfferExpiresAt , Status = PENDING\n[AUDIT LOG] Write audit record of VCVP Core 09 : when the offer link was created for the credential (EngineCalls , Correlation.CredentialId)
     DW<--Core: 200 | credential_id , offer_url , expires_at , transaction_code (only when the schema has transactionCode)
 else Offer link created
-    note right of Engine #wheat:[ENGINE RULE] schema transactionCode = { type NUMERIC or ALPHANUMERIC , length 4 to 10 , description }\nshare returns transactionCode only for such a schema , every share returns a new code
-    Engine-->Core: url\nexpiresAt , transactionCode (only when the schema has transactionCode)
+    note right of VCEngine #wheat:[ENGINE RULE] schema transactionCode = { type NUMERIC or ALPHANUMERIC , length 4 to 10 , description }\nshare returns transactionCode only for such a schema , every share returns a new code
+    VCEngine-->Core: url\nexpiresAt , transactionCode (only when the schema has transactionCode)
     Core->Core: transactionCode goes only into the response to DW Core , it is not logged and not stored
     note right of Core #wheat:[DATA STORE] Credentials table\nCredentialId = id from the engine\nurl stored in OfferUrl (temporary)\nexpiresAt stored in OfferExpiresAt\nStatus = PENDING
     Core->Core: [DATA STORE] Store offer in Credentials table
