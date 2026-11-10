@@ -62,7 +62,7 @@ else Verifier authorized and trusted
 end
 
 note over VSys,Engine #orange: 4. Generate the verification link
-VSys->Core: Request verification link + Consumer-Key + Token | POST /api/proof-request/v1/share (VCVP Core 25)\nverification_id
+VSys->Core: Request verification link + Consumer-Key + Token | POST /api/proof-request/v1/{verification_id}/share (VCVP Core 25)
 Core->Core: Check Consumer-Key and Token , validate caller authorization
 alt Consumer-Key or Token invalid or missing
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 25 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)

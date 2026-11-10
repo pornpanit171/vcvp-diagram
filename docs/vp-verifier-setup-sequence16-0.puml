@@ -121,7 +121,7 @@ end
 
 note over Officer,Engine #khaki: 0.2.2 Read the imported schema (claims to choose)
 Officer->VSys: Open the imported schema to choose the claims to request
-VSys->Core: Get imported schema claims + Consumer-Key + Token | GET /api/credential-schema/v1/{imported_credential_schema_id} (VCVP Core 45)
+VSys->Core: Get imported schema claims + Consumer-Key + Token | GET /api/credential-schema/v1/imported/{imported_credential_schema_id} (VCVP Core 45)
 Core->Core: Check Consumer-Key and Token , validate caller authorization\nFind ImportedCredentialSchemaId in ImportedCredentialSchemas table (Status = ACTIVE)\nCheck the caller has an ACTIVE OrgRole in ImportedCredentialSchemas.OrganizationId
 alt Consumer-Key or Token invalid or missing
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 45 (FailureReason = CALLER_NOT_AUTHENTICATED , OrgCode and Actor empty)
@@ -138,7 +138,7 @@ else Caller has no ACTIVE OrgRole in the organisation that owns the schema
 else Schema found
     Core->Engine: Get imported schema | GET /api/credential-schema/v2/{id}
     Engine-->Core: schema (claims[] key , datatype , required , translations , mappings)
-    Core->Core: source and status from ImportedCredentialSchemas , type_metadata_integrity of the SD_JWT_VC format from TypeMetadataIntegrity\nversion and claims[].data_category from CredentialSchemas (row = Source.CredentialSchemaId , claim matched by Path = claims[].key)\nrevocation_method from the format
+    Core->Core: source and status from ImportedCredentialSchemas , type_metadata_integrity of the SD_JWT_VC format from TypeMetadataIntegrity\nversion and claims[].data_category from CredentialSchemas (row = Source.CredentialSchemaId , claim matched by Path = claims[].key)
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 45 : who read which imported schema (EngineCalls)
     VSys<--Core: 200 | created_date , last_modified , org_code , source ,\nname_en , name_local , description_en , description_local , version , formats ,\nsuspendable , revocable , requires_wallet_instance_attestation , key_storage_security , claims , status
     Officer<--VSys: Claims that can be requested

@@ -179,7 +179,7 @@ note right of CoreApp #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.
 CoreApp-->Mini: response (JWE) + WIA request proof + bearer + WIA-PoP
 
 alt Signing failed / key unavailable / user cancels
-    Mini->DW: Report presentation result + Token | POST /dw/v1/presentation/result (DW endpoint 15)\n(result = FAILED , reason = HOLDER_SIGNING_FAILED)
+    Mini->DW: Report presentation result + Token | POST /dw/v1/presentation/result (DW endpoint 15)\n(result = FAILED , reason = SIGNING_FAILED / KEY_UNAVAILABLE / USER_CANCELLED)
     DW->DW: Keep the detailed reason in the DW sharing confirmation record , send reason = HOLDER_DECLINED to VCVP Core
     DW->Core: Holder ends the verification request before sending VP | POST /api/proof-request/v1/cancel (VCVP Core 28)\nstate , reason
     Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , otherwise 401 FailureReason = CALLER_NOT_AUTHENTICATED / 403 FailureReason = CALLER_NOT_AUTHORIZED
@@ -198,8 +198,8 @@ Mini->DW: Submit presentation + Token | POST /dw/v1/presentation/submit (DW endp
 note right of DW #wheat:[SPEC] header x5c = wallet provider certificate (no iss) | cnf , wallet_name , wallet_version , wallet_solution_certification_information , wallet_link , client_status { status , exp }
 note right of DW #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 10.3.2 (MUST NOT)  the verifier gets no device capability data\n• 10.5.1 (SHOULD)  WUA once-only or in a batch\nEUDI TS3 v1.5.2\n• 2.2.1.1 (SHALL)  WIA time-to-live less than 24 hours
 note right of DW #wheat:[SPEC] DW Core puts no WSCD data in the WIA (eudi_wallet_info = null) , a new WIA with a new key for each presentation , valid 300 seconds
-DW->DW: As the wallet provider : check wallet unit status = ACTIVE and the WIA request proof , sign a new WIA with the wallet provider key of DW\ncnf = the new WIA key , valid 300 seconds , client_status
-alt Wallet unit revoked or the WIA request proof is invalid
+DW->DW: As the wallet provider : check wallet unit status = ACTIVE , the bearer with the registered instance key and the WIA request proof , sign a new WIA with the wallet provider key of DW\ncnf = the new WIA key , valid 300 seconds , client_status
+alt Wallet unit revoked or the bearer or WIA request proof is invalid
     DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = WALLET_ATTESTATION_FAILED , no claim values)
     Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = WALLET_ATTESTATION_FAILED
 end

@@ -219,7 +219,7 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
             Mini<--DW: 409 (response of /dw/v1/issuance/token) | reason = OFFER_EXPIRED
             Mini-->User: Show "The code has expired" with the button "Send a new code"
             User->Mini: Tap "Send a new code"
-            Mini->DW: Request a new code | POST /dw/v1/issuance/tx-code (DW endpoint 18)\n(issuanceSessionId)
+            Mini->DW: Request a new code + Token | POST /dw/v1/issuance/tx-code (DW endpoint 18)\n(issuanceSessionId)
         else Offer without tx_code
             DW->Core: Request a new c_nonce | POST nonce_endpoint (VCVP Core 15)
             DW<--Core: c_nonce
@@ -228,7 +228,7 @@ Core->Core: Check the WIA status at idx = 0x00 VALID\nsignature with the wallet 
             Mini->Mini: Repeat section 8 with the new c_nonce , it calls /dw/v1/issuance/token (DW endpoint 05) again
         end
         note right of DW #wheat:[SPEC] next request (DW endpoint 18 , or DW endpoint 05 from the repeated section 8) : DW Core renews the offer first
-        DW->Core: Request new offer link | POST /api/credential/v1/share (VCVP Core 09) (credential_id)
+        DW->Core: Request new offer link | POST /api/credential/v1/{credential_id}/share (VCVP Core 09)
         Core->Core: Check Consumer-Key (DW Core central Consumer-Key) , caller channel = WALLET , ActorType = CITIZEN
         note right of Core #wheat:[STANDARD] RFC 9110\n• 15.5.2 (MUST)  401 when the request has no valid credentials , with WWW-Authenticate\n• 15.5.4  403 when the caller is known but not allowed
         alt Consumer-Key invalid or missing
@@ -391,7 +391,7 @@ note right of DW #wheat:[STANDARD] OpenID4VCI 1.0\n• 8.3.1.2  invalid_nonce , 
             Mini<--DW: 409 (response of /dw/v1/issuance/credential) | reason = OFFER_EXPIRED
             Mini-->User: Show "The code has expired" with the button "Send a new code"
             User->Mini: Tap "Send a new code"
-            Mini->DW: Request a new code | POST /dw/v1/issuance/tx-code (DW endpoint 18)\n(issuanceSessionId)
+            Mini->DW: Request a new code + Token | POST /dw/v1/issuance/tx-code (DW endpoint 18)\n(issuanceSessionId)
         else Offer without tx_code
             DW->Core: Request a new c_nonce | POST nonce_endpoint (VCVP Core 15)
             DW<--Core: c_nonce
@@ -495,7 +495,7 @@ DW<--Core: Credential Response (application/json) | credentials[].credential , n
         Engine-->Core: Status List JWT (typ statuslist+jwt)
         DW<--Core: Status List JWT
         note right of DW #wheat:[STANDARD] Token Status List draft-21\n• 5.1 (MUST , REQUIRED , RECOMMENDED)  typ , sub , iat , exp , ttl\n• 8.3 (MUST)  check exp when present , reject idx out of range\nThai VC ARF 2.0 DRAFT 0\n• 8.4.4 (MUST)  fail closed
-        note right of DW #wheat:[SPEC] accept only 0x00 (VALID) at idx , cache by ttl
+        note right of DW #wheat:[SPEC] accept only 0x00 (VALID) at idx , reject idx out of range\ncache up to ttl and at most 1 hour from the last successful fetch , no list → rejected (fail closed)
         note right of DW #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : 13.2 says the profile fixes one Token Status List revision (draft-18 and draft-21 differ)\nquestion : which revision
         note right of DW #wheat:[SPEC] Check 4 : signature by the issuer key (alg matches the key type , 11.3 MUST) , sub = status_list.uri , iat , exp when present , value at idx = 0x00 (VALID)
         DW->DW: Check the status (Check 4)
