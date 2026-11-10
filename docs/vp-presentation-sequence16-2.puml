@@ -205,11 +205,32 @@ alt Wallet unit revoked or the WIA request proof is invalid
 end
 note right of DW #wheat:[SPEC] Content-Type: application/x-www-form-urlencoded\nresponse = JWE , wallet_attestation = the new WIA , wallet_attestation_pop = WIA-PoP
 DW->Core: Submit presentation | POST /ssi/openid4vp/final-1.0/response (VCVP Core 29)
+note right of Core #wheat:[STANDARD] OpenID4VP 1.0\n• 8.3  the response is encrypted to the verifier key in client_metadata.jwks
+note right of HSM #wheat:[SPEC] the verifier keyAgreement key is one AWS KMS key (KeyUsage KEY_AGREEMENT , not exportable) , separate from the verifier signing key\nthe engine and VCVP Core use it through IAM permissions , there is no copy of the private key
+note right of HSM #wheat:[STANDARD] NIST SP 800-57 Part 1 Rev. 5\n• 9.5.3.2  more copies of a key , more exposure
+Core->HSM: Derive the shared secret | AWS KMS DeriveSharedSecret\n(verifier keyAgreement key , epk from the JWE header)
+HSM-->Core: shared secret (ECDH)
+Core->Core: Decrypt the response (Concat KDF , AES-GCM) : state and vp_token , no claim values are kept
+Core->Core: Find the request in Verifications table : InteractionId = state from the decrypted response , read Nonce
+alt Request not found
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29 (FailureReason = VERIFICATION_NOT_FOUND)
+    DW<--Core: 400 | error = invalid_request , vcvp_failure_reason = VERIFICATION_NOT_FOUND
+    DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = VERIFIER_REJECTED , no claim values)
+    Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = VERIFIER_REJECTED
+    Mini-->User: Sharing failed
+else Request not PENDING
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29 (FailureReason = VERIFICATION_ALREADY_ENDED)
+    DW<--Core: 400 | error = invalid_request , vcvp_failure_reason = VERIFICATION_ALREADY_ENDED
+    DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = VERIFIER_REJECTED , no claim values)
+    Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = VERIFIER_REJECTED
+    Mini-->User: Sharing failed
+else Request found and PENDING
+    Core->Core: Continue with TC-2 (section 7.1)
+end
 
 note over Core,Trust #violet: 7.1 TC-2 : wallet provider check
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.9 step 0 (MUST)  a government wallet sends both WIA and WIA-PoP , one missing is rejected\nEUDI TS3 v1.5.2\n• WIA without iss , the wallet provider comes from the x5c certificate
 note right of Core #wheat:[SPEC] not found in the Wallet Provider Trusted List → 400 , error = invalid_request , vcvp_failure_reason = WALLET_ATTESTATION_FAILED\nWIA-PoP verified with WIA.cnf.jwk (iss = WIA.sub , aud = client_id , nonce matches)
-Core->Core: Find the request in Verifications table , read the nonce stored in section 1
 note right of Core #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : section 8.6 (MUST row) , 8.8 (MUST) , 12.1.4 (MUST) and appendix 8.2 E.1.9 : the verifier decides the wallet type (government / private) from trusted wallet provider data and rejects the VP if it cannot , the Trusted List has no such field yet\nquestion : which field gives the wallet type
 note right of Core #B3E5FC:[WORKAROUND] until ETDA publishes the field , VCVP Core treats the wallet as a government wallet (section 8.6 , 8.8 , 12.1.4 MUST reject)\nremove when the field is published
 Core->Core: Check the x5c signing certificate of the WIA against the Wallet Provider Trusted List (wp.txt , ETDA Trusted List Load) (L3) , service type = wallet provider (ServiceTypeIdentifier) , active , validity period current\nverify WIA , WIA iat within the last 120 seconds , verify WIA-PoP , check jti not used before (Verifications.WiaPopJti , unique index)
@@ -219,23 +240,29 @@ alt WIA or WIA-PoP missing / wallet provider not trusted / signature or nonce in
     DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = VERIFIER_REJECTED , no claim values)
     Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = VERIFIER_REJECTED
     Mini-->User: Sharing failed
+else Trusted List not usable (TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE)
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29 (FailureReason = TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE , Correlation.VerificationId)
+    DW<--Core: 503 + Retry-After | vcvp_failure_reason = TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE
+    DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = VERIFIER_REJECTED , no claim values)
+    Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = VERIFIER_REJECTED
+    Mini-->User: Sharing failed
 else Wallet provider trusted
-    Core->Core: [DATA STORE] Store the WIA-PoP jti in Verifications table (WiaPopJti) as used\n[AUDIT LOG] Write audit record of VCVP Core 29 : the wallet provider check passed (WIA-PoP jti)
+    Core->Core: [DATA STORE] Store the WIA-PoP jti in Verifications table (WiaPopJti) as used
 end
 
 note over Core,Trust #violet: 7.2 TC-3 before the engine : issuer check
-note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.10 (MUST)  local Trusted List check fails , reject at once without a network call\n• 8.5 (MUST)  DID resolution follows a passed TC-3\nOpenID4VP 1.0\n• 8.3  the response is encrypted to the verifier key in client_metadata.jwks
+note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.10 (MUST)  local Trusted List check fails , reject at once without a network call\n• 8.5 (MUST)  DID resolution follows a passed TC-3
 note right of Core #wheat:[SPEC] VCVP Core and the engine are both on the verifier side
-note right of HSM #wheat:[SPEC] the verifier keyAgreement key is one AWS KMS key (KeyUsage KEY_AGREEMENT , not exportable) , separate from the verifier signing key\nthe engine and VCVP Core use it through IAM permissions , there is no copy of the private key
-note right of HSM #wheat:[STANDARD] NIST SP 800-57 Part 1 Rev. 5\n• 9.5.3.2  more copies of a key , more exposure
-Core->HSM: Derive the shared secret | AWS KMS DeriveSharedSecret\n(verifier keyAgreement key , epk from the JWE header)
-HSM-->Core: shared secret (ECDH)
-Core->Core: Decrypt the response (Concat KDF , AES-GCM) and read each issuer JWT : iss , kid , vct , nbf , exp\nno claim values are kept
+Core->Core: Read each issuer JWT from the decrypted response : iss , kid , vct , nbf , exp\nno claim values are kept
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.9 step 2 (MUST)  TC-3 , the issuer key is found in the Issuer Trusted List (L4)\n• 9.8 (MUST)  identity , key , status , validity period and scope checked by role\n• 8.4.3 step 2 (MUST)  find the Issuer service\nOpenID4VP 1.0\n• 8.6  checks required by the Verifier trust policy
 note right of Core #wheat:[SPEC] not found → 400 , error = invalid_request , vcvp_failure_reason = ISSUER_NOT_TRUSTED , the engine does not use the Trusted List
 note right of Core #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : section 12.6 (MUST) and appendix 8.2 E.1.9 step 2 check the validity period of each issuer key and reject when it cannot be checked , the Thai profile has no per-key validity period yet , so this check waits for the profile\nquestion : will the Trusted List list each issuer key with its start and end date
 note right of Core #wheat:[SPEC] service type = issuer (ServiceTypeIdentifier) , organisation and service status = active , validity period current , vct in the issuer scope , validity window
 Core->Core: Look up the issuer key in the Issuer Trusted List (iss.txt , ETDA Trusted List Load) (L4)\nthe issuer DID is in OtherIds and the issuer key (kid) is in the keys listed for that service
+Core->Core: [DATA STORE] Store the issuer check in Verifications table (IssuerTrust : Result , CheckedAt , RegistryReference) , passed or failed
+note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.7  nonce and aud in the VP token , token age at most 5 minutes\n• chapter 14 SC-27  a VP with the aud of another verifier is refused , token age at most 5 minutes
+note right of Core #B3E5FC:[WORKAROUND] VCVP Core checks the KB-JWT age because the engine accepts a KB-JWT that is 10 minutes old\nremove this check and the PRESENTATION_EXPIRED branch when the engine limits the KB-JWT age
+Core->Core: Check iat of each KB-JWT : not older than 300 seconds and at most 60 seconds ahead (clock skew)
 note right of Core #wheat:[STANDARD] OpenID4VP 1.0\n• 8.6 (MUST)  the returned credential meets all criteria of the query\nThai VC ARF 2.0 DRAFT 0\n• 7.7 (MUST)  check the schema version , not the type name only\nSD-JWT VC draft-19\n• 2.2.2.1  vct is case-sensitive\n• 6 (MUST)  vct#integrity checked against the type metadata document
 note right of Core #B3E5FC:[WORKAROUND] VCVP Core compares vct and vct#integrity because the engine does not compare them with the request\nremove this step and the PRESENTATION_TYPE_MISMATCH branch when the engine does
 Core->Core: Compare each credential with the request\nvct = a value of meta.vct_values (exact , case-sensitive) , vct#integrity = TypeMetadataIntegrity of the imported schema
@@ -243,16 +270,26 @@ note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 13.3  sub , ia
 note right of Core #B3E5FC:[WORKAROUND] VCVP Core checks the status list because the engine checks only the signature and the value at idx , not typ , sub , exp and the bits\nremove this step and the CREDENTIAL_STATUS_INVALID branch when the engine checks them
 note right of Core #wheat:[SPEC] signature with the issuer key found above (alg matches the key type) , typ = statuslist+jwt , sub = status_list.uri , iat , exp when present\nvalue at idx with the bits of the list : 0x00 VALID continues , 0x01 , 0x02 and other values are rejected\ncached up to ttl and at most 1 hour from the last successful fetch , no list → rejected (fail closed)
 Core->Core: Get and check the status list of each credential (status_list.uri)
-note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.7  nonce and aud in the VP token , token age at most 5 minutes\n• chapter 14 SC-27  a VP with the aud of another verifier is refused , token age at most 5 minutes
-note right of Core #B3E5FC:[WORKAROUND] VCVP Core checks the KB-JWT age because the engine accepts a KB-JWT that is 10 minutes old\nremove this check and the PRESENTATION_EXPIRED branch when the engine limits the KB-JWT age
-Core->Core: Check iat of each KB-JWT : not older than 300 seconds and at most 60 seconds ahead (clock skew)
-alt Issuer not trusted
+alt Trusted List not usable (TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE)
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29 (FailureReason = TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE , Correlation.VerificationId)
+    DW<--Core: 503 + Retry-After | vcvp_failure_reason = TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE
+    DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = VERIFIER_REJECTED , no claim values)
+    Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = VERIFIER_REJECTED
+    Mini-->User: Sharing failed
+else Issuer not trusted
     Core->Core: Update Verifications table Status = COMPLETED , Result = INVALID , Reason = ISSUER_NOT_TRUSTED\n(the response is not sent to the engine)
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29\n(FailureReason = ISSUER_NOT_TRUSTED , TrustCheck , no claim values)
     DW<--Core: 400 | error = invalid_request , vcvp_failure_reason = ISSUER_NOT_TRUSTED
     DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = ISSUER_NOT_TRUSTED , no claim values)
     Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = ISSUER_NOT_TRUSTED
     Mini-->User: Sharing failed\nIssuer not trusted
+else KB-JWT older than 300 seconds
+    Core->Core: Update Verifications table Status = COMPLETED , Result = INVALID , Reason = PRESENTATION_EXPIRED\n(the response is not sent to the engine)
+    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29\n(FailureReason = PRESENTATION_EXPIRED , KB-JWT iat , no claim values)
+    DW<--Core: 400 | error = invalid_request , vcvp_failure_reason = PRESENTATION_EXPIRED
+    DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = PRESENTATION_EXPIRED , no claim values)
+    Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = PRESENTATION_EXPIRED
+    Mini-->User: Sharing failed\nThe sharing took too long , please share again
 else credential type does not match the request
     Core->Core: Update Verifications table Status = COMPLETED , Result = INVALID , Reason = PRESENTATION_TYPE_MISMATCH\n(the response is not sent to the engine)
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29\n(FailureReason = PRESENTATION_TYPE_MISMATCH , vct , no claim values)
@@ -267,63 +304,61 @@ else credential status not VALID or status list not valid
     DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = CREDENTIAL_STATUS_INVALID , no claim values)
     Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = CREDENTIAL_STATUS_INVALID
     Mini-->User: Sharing failed\nThe credential is revoked , suspended or its status cannot be checked
-else KB-JWT older than 300 seconds
-    Core->Core: Update Verifications table Status = COMPLETED , Result = INVALID , Reason = PRESENTATION_EXPIRED\n(the response is not sent to the engine)
-    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29\n(FailureReason = PRESENTATION_EXPIRED , KB-JWT iat , no claim values)
-    DW<--Core: 400 | error = invalid_request , vcvp_failure_reason = PRESENTATION_EXPIRED
-    DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = PRESENTATION_EXPIRED , no claim values)
-    Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = PRESENTATION_EXPIRED
-    Mini-->User: Sharing failed\nThe sharing took too long , please share again
-else Issuer trusted , credential type matches , status VALID and KB-JWT fresh
+else Issuer trusted , KB-JWT fresh , credential type matches and status VALID
     Core->Core: Continue , send the same response (JWE) to the engine
 end
-note right of Engine #wheat:[ENGINE RULE] the response endpoint accepts the extra form parameters wallet_attestation and wallet_attestation_pop\nthe VP is ACCEPTED with or without them , VCVP Core forwards the request as received
-Core->Engine: Submit presentation | POST /ssi/openid4vp/final-1.0/response\nresponse , wallet_attestation , wallet_attestation_pop
+group Engine verifies the VP (inside VCVP Core 29)
+    note right of Engine #wheat:[ENGINE RULE] the response endpoint accepts the extra form parameters wallet_attestation and wallet_attestation_pop\nthe VP is ACCEPTED with or without them , VCVP Core forwards the request as received
+    Core->Engine: Submit presentation | POST /ssi/openid4vp/final-1.0/response\nresponse , wallet_attestation , wallet_attestation_pop
 
-note over Engine,HSM #orange: 8. Engine verifies the VP (holder binding and status)
-Engine->HSM: Decrypt the response (ECDH-ES) with the verifier key
-HSM-->Engine: { vp_token , state }
-note right of Engine #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.9 steps 1 , 2 , 3  holder binding , issuer , status\nOpenID4VP 1.0\n• 8.6 (MUST)  validate the VP Token\n• Appendix B.3.6 (MUST)  KB-JWT nonce and aud
-Engine->Engine: Match state to the proof request
-Engine->Engine: Verify KB-JWT with cnf.jwk (aud = client_id , nonce , iat current) , recompute sd_hash
-note right of Engine #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.10 (MUST)  the Trusted List check comes first\n• 8.5 (MUST)  DID resolution follows a passed TC-3
-note right of Engine #wheat:[SPEC] VCVP Core checks the issuer in section 7.2 before the engine , the engine resolves the DID and reads the status list only for a trusted issuer
-Engine->Engine: Resolve the issuer DID , verify the issuer JWS and every disclosure against _sd
-Engine->Engine: Check the claims of the proof schema are present (DCQL)
-note right of Engine #wheat:[STANDARD] Token Status List draft-21\n• 5.1 (MUST)  typ and sub\n• 8.3 (MUST)  exp checked when present , idx out of range rejected\nThai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.9 step 3  unknown status values are rejected\n• 8.4.4 (MUST)  fail closed
-note right of Engine #wheat:[ENGINE RULE] the engine checks only the status list signature and the value at idx , not typ , sub , exp or the bits (checked in engine 1.89.3 source)\nVCVP Core checks the rest in section 7.2
-note right of Engine #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : section 13.7.1 (informative , MUST) and SC-24 : the status_list.uri comes from a source allowed in the Trusted List , the Thai profile has no field for it yet , the engine uses the uri in the credential\nquestion : which Trusted List field lists the allowed status list sources
-note right of Engine #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : section 13.2 (informative , MUST) : the profile fixes one revision of Token Status List , draft-18 and draft-21 are not interchangeable , the engine and these diagrams follow draft-21\nquestion : which revision
-Engine->Core: Get the status list | GET /ssi/revocation/v1/list/{id} (VCVP Core 31)
-Core->Engine: Get the status list | GET /ssi/revocation/v1/list/{id}
-Engine-->Core: Status List JWT (typ statuslist+jwt)
-Core-->Engine: Status List JWT
-Engine->Engine: Check the status at idx = 0x00 (VALID)\nthe verifier engine caches the list for 300 seconds
+    note over Engine,HSM #orange: 8. Engine verifies the VP (holder binding and status)
+    Engine->HSM: Decrypt the response (ECDH-ES) with the verifier key
+    HSM-->Engine: { vp_token , state }
+    note right of Engine #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.9 steps 1 , 2 , 3  holder binding , issuer , status\nOpenID4VP 1.0\n• 8.6 (MUST)  validate the VP Token\n• Appendix B.3.6 (MUST)  KB-JWT nonce and aud
+    Engine->Engine: Match state to the proof request
+    Engine->Engine: Verify KB-JWT with cnf.jwk (aud = client_id , nonce , iat current) , recompute sd_hash
+    note right of Engine #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 9.10 (MUST)  the Trusted List check comes first\n• 8.5 (MUST)  DID resolution follows a passed TC-3
+    note right of Engine #wheat:[SPEC] VCVP Core checks the issuer in section 7.2 before the engine , the engine resolves the DID and reads the status list only for a trusted issuer
+    Engine->Engine: Resolve the issuer DID , verify the issuer JWS and every disclosure against _sd
+    Engine->Engine: Check the claims of the proof schema are present (DCQL)
+    note right of Engine #wheat:[STANDARD] Token Status List draft-21\n• 5.1 (MUST)  typ and sub\n• 8.3 (MUST)  exp checked when present , idx out of range rejected\nThai VC ARF 2.0 DRAFT 0\n• appendix 8.2 E.1.9 step 3  unknown status values are rejected\n• 8.4.4 (MUST)  fail closed
+    note right of Engine #wheat:[ENGINE RULE] the engine checks only the status list signature and the value at idx , not typ , sub , exp or the bits (checked in engine 1.89.3 source)\nVCVP Core checks the rest in section 7.2
+    note right of Engine #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : section 13.7.1 (informative , MUST) and SC-24 : the status_list.uri comes from a source allowed in the Trusted List , the Thai profile has no field for it yet , the engine uses the uri in the credential\nquestion : which Trusted List field lists the allowed status list sources
+    note right of Engine #FFCDD2:[PENDING] waiting for ETDA | Thai VC ARF 2.0 DRAFT 0\nissue : section 13.2 (informative , MUST) : the profile fixes one revision of Token Status List , draft-18 and draft-21 are not interchangeable , the engine and these diagrams follow draft-21\nquestion : which revision
+    group Engine gets the status list through VCVP Core 31
+        Engine->Core: Get the status list | GET /ssi/revocation/v1/list/{id} (VCVP Core 31)
+        Core->Engine: Get the status list | GET /ssi/revocation/v1/list/{id}
+        Engine-->Core: Status List JWT (typ statuslist+jwt)
+        Core-->Engine: Status List JWT
+    end
+    Engine->Engine: Check the status at idx = 0x00 (VALID)\nthe verifier engine caches the list for 300 seconds
 
-alt Engine verification failed (signature / KB-JWT / nonce / status / claims)
-    Engine->Engine: Proof state PENDING → ERROR
-    note right of Engine #wheat:[ENGINE RULE] The engine answers 500 without a reason (revoked credential , wrong nonce)
-    Engine-->Core: 500
-    Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29 (EngineCalls , no claim values)
-    DW<--Core: 400 | error = invalid_request
-    DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = VERIFIER_REJECTED , no claim values)
-    Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = VERIFIER_REJECTED
-    Mini-->User: Sharing failed
-else Engine verification passed
-    Engine->Engine: Proof state PENDING → ACCEPTED\nstore disclosed claim values until retainUntilDate
-    Engine-->Core: 200 {}
+    alt Engine verification failed (signature / KB-JWT / nonce / status / claims)
+        Engine->Engine: Proof state PENDING → ERROR
+        note right of Engine #wheat:[ENGINE RULE] the engine answers 400 invalid_request without a reason (revoked credential , wrong nonce)
+        Engine-->Core: 400 | error = invalid_request
+        Core->Core: Update Verifications table Status = COMPLETED , Result = INVALID , Reason = PRESENTATION_INVALID
+        Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 29 (FailureReason = PRESENTATION_INVALID , EngineCalls , no claim values)
+        DW<--Core: 400 | error = invalid_request , vcvp_failure_reason = PRESENTATION_INVALID
+        DW->DW: [DATA STORE] Update presentation request status = FAILED (reason = VERIFIER_REJECTED , no claim values)
+        Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = FAILED , reason = VERIFIER_REJECTED
+        Mini-->User: Sharing failed
+    else Engine verification passed
+        Engine->Engine: Proof state PENDING → ACCEPTED\nstore disclosed claim values until retainUntilDate
+        Engine-->Core: 200 {}
 
-    Core->Core: [DATA STORE] Update Verifications table Result = VALID , CredentialStatus = ACTIVE , VerifiedAt
-    Core->Core: [AUDIT LOG] Write audit record of VCVP Core 29 : the VP was accepted (TrustCheck , EngineCalls , no claim values)
-    note right of DW #wheat:[STANDARD] OpenID4VP 1.0\n• 8.2  no redirect_uri in the response , no further wallet steps
-    DW<--Core: 200 {}
-    note right of DW #wheat:[STANDARD] OpenID4VP 1.0\n• 15.1 (SHOULD NOT)  transaction history accessible to others
-    note right of DW #wheat:[SPEC] DW keeps metadata only , never claim values or the VP
-    note right of DW #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.6 (MUST row)  presentation events logged and kept at least 7 years
-    note right of DW #wheat:[SPEC] DW Core keeps the sharing confirmation record 7 years : verifier , purpose , legal basis , claim names , result , time (no claim values)\nwhen LegalBasis = CONSENT the record is also the consent evidence (ConsentRef)
-    DW->DW: Update presentation request status = SHARED (verifier , disclosed claim names only , no values , kept 7 years)
-    Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = SHARED
-    Mini-->User: Shared successfully
+        Core->Core: [DATA STORE] Update Verifications table Status = COMPLETED , Result = VALID , VerifiedAt
+        Core->Core: [AUDIT LOG] Write audit record of VCVP Core 29 : the VP was accepted (TrustCheck , EngineCalls , no claim values)
+        note right of DW #wheat:[STANDARD] OpenID4VP 1.0\n• 8.2  no redirect_uri in the response , no further wallet steps
+        DW<--Core: 200 {}
+        note right of DW #wheat:[STANDARD] OpenID4VP 1.0\n• 15.1 (SHOULD NOT)  transaction history accessible to others
+        note right of DW #wheat:[SPEC] DW keeps metadata only , never claim values or the VP
+        note right of DW #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 8.6 (MUST row)  presentation events logged and kept at least 7 years
+        note right of DW #wheat:[SPEC] DW Core keeps the sharing confirmation record 7 years : verifier , purpose , legal basis , claim names , result , time (no claim values)\nwhen LegalBasis = CONSENT the record is also the consent evidence (ConsentRef)
+        DW->DW: Update presentation request status = SHARED (verifier , disclosed claim names only , no values , kept 7 years)
+        Mini<--DW: 200 (response of /dw/v1/presentation/submit) | result = SHARED
+        Mini-->User: Shared successfully
+    end
 end
 
 note over Officer,Trust #khaki: 9. Verifier gets the result
