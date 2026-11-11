@@ -41,7 +41,7 @@ note right of DW #wheat:[STANDARD] OpenID4VP 1.0\n• 5.1 (MUST)  no request_uri
 DW->DW: Validate Token → CitizenId\nParse openid4vp:// → client_id , request_uri
 DW->Core: Read request object from request_uri | GET /ssi/verification-counter/v1/{counter_id}/request-object (VCVP Core 42)
 note right of Core #wheat:[SPEC] limit scans per counter (VCVP policy)
-Core->Core: Read VerificationCounters table by CounterId (template , verifier identity , purpose) , Status = ACTIVE\nVerifier still listed as a verifier service (ServiceTypeIdentifier) and active in the cached Verifier Trusted List (ver.txt , ETDA Trusted List Load)
+Core->Core: Read VerificationCounters table by CounterId (template , verifier identity , purpose) , Status = ACTIVE\nverifierKey = the ACTIVE SIGNING key of the verifier identity (Keys : KeyUsage = SIGNING , Status = ACTIVE)\nVerifier still listed as a verifier service (ServiceTypeIdentifier) and active in the cached Verifier Trusted List (ver.txt , ETDA Trusted List Load)
 alt Counter not found or inactive , verifier not trusted or scan limit reached
     note right of Core #wheat:[SPEC] counter not found or Status not ACTIVE → COUNTER_NOT_FOUND\nverifier not in ver.txt or not active → VERIFIER_NOT_TRUSTED\nscan limit reached (VCVP policy) → COUNTER_SCAN_LIMIT_EXCEEDED
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 42 (FailureReason = the vcvp_failure_reason answered)

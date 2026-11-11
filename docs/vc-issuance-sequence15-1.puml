@@ -279,7 +279,7 @@ else Caller authorized
     Core->Core: Continue
 end
 
-note right of Core #wheat:[SPEC] IssuerIdentityId and IssuerKeyId are optional : identity of the schema owner and ACTIVE , key of that identity (Keys.IdentityId) and ACTIVE\na key with Keys.Status = REVOKED (compromised) : FailureReason = ISSUER_KEY_COMPROMISED (Key-Compromise-sequence)\nan expired key sent by the caller (Keys.ExpiryDate passed) : Keys.Status = DEPRECATED , 409 ISSUER_KEY_EXPIRED , no switch to another key
+note right of Core #wheat:[SPEC] IssuerIdentityId and IssuerKeyId are optional : identity of the schema owner and ACTIVE , key of that identity (Keys.IdentityId) , KeyUsage = SIGNING and ACTIVE\na key with Keys.Status = REVOKED (compromised) : FailureReason = ISSUER_KEY_COMPROMISED (Key-Compromise-sequence)\nan expired key sent by the caller (Keys.ExpiryDate passed) : Keys.Status = DEPRECATED , 409 ISSUER_KEY_EXPIRED , no switch to another key
 Core->Core: Validate the request against the schema\n(schema ACTIVE , issuer identity and key when sent)
 alt Issuer identity / key invalid
     note right of Core #wheat:[ERROR AUDIT] VCVPAuditLog\nFailureReason = REQUEST_REJECTED\nMessageCode , Message (HTTP status of the error)\nEventTime\nActor (OrgCode , ConsumerKey , Channel)\nCorrelation.RequestId
@@ -317,19 +317,19 @@ note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.7  DNSSEC f
 Core->Core: Look up agency organisation in Organizations table (OrgCode)
 note right of Core #wheat:[SPEC] issuer DID = CredentialSchemas.IssuerIdentityId , or IssuerIdentityId when the caller sent it\nengine to call = CredentialSchemas.EngineId
 Core->Core: Select the issuer DID
-note right of Core #wheat:[SPEC] key status RESERVED / ACTIVE / DEPRECATED / REVOKED , one ACTIVE key per identity , more than one = configuration error\nVCVP Core always sends issuer and issuerKey to the engine
+note right of Core #wheat:[SPEC] key status RESERVED / ACTIVE / DEPRECATED / REVOKED , one ACTIVE SIGNING key per identity , more than one = configuration error\nVCVP Core always sends issuer and issuerKey to the engine
 note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 13.7.7.1 (informative)  key lifecycle states
-note right of Core #wheat:[SPEC] key = the ACTIVE key of that DID set by the agency (Keys.Status = ACTIVE , Keys.IdentityId) , or IssuerKeyId when the caller sent it\nsent to the engine as issuerKey , stored in Credentials.IssuerKeyId (section 6)
-Core->Core: Select the issuer signing key
+note right of Core #wheat:[SPEC] key = the ACTIVE SIGNING key of that DID set by the agency (Keys.IdentityId , KeyUsage = SIGNING , Status = ACTIVE) , or IssuerKeyId when the caller sent it\nsent to the engine as issuerKey , stored in Credentials.IssuerKeyId (section 6)
+Core->Core: Select the issuer signing key (KeyUsage = SIGNING)
 
-alt Organisation / issuer DID not found , or more than one ACTIVE key
+alt Organisation / issuer DID not found , or more than one ACTIVE SIGNING key
     Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08\n(FailureReason = ORGANISATION_NOT_FOUND / ISSUER_DID_NOT_FOUND / ISSUER_KEY_AMBIGUOUS)
     DW<--Core: Reject issuance request\n403 ORGANISATION_NOT_FOUND / 403 ISSUER_DID_NOT_FOUND / 500 ISSUER_KEY_AMBIGUOUS (failure_reason)
     DW->DW: Update issuance request status = ISSUER_SETUP_NOT_FOUND\n(credential not issued)
     Mini<--DW: Error (response of 1.2) | reason = ISSUER_SETUP_NOT_FOUND
     Mini-->User: Show error , credential not added (reason)
     note over User,Mini #wheat: Issuance stops here , credential not added , sections 5.2 to 11 do not apply
-else Organisation and issuer DID found , at most one ACTIVE key
+else Organisation and issuer DID found , at most one ACTIVE SIGNING key
     Core->Core: Continue
 end
 
@@ -337,7 +337,7 @@ note over Core,VCEngine #orange: 5.2 Issuer Key Check
 
 Core->Core: Check the issuer key from section 5.1 (Keys.Status , Keys.ExpiryDate)
 
-alt No ACTIVE key / key expired (Keys.ExpiryDate passed) , key selected by VCVP Core (no IssuerKeyId sent)
+alt No ACTIVE SIGNING key / key expired (Keys.ExpiryDate passed) , key selected by VCVP Core (no IssuerKeyId sent)
 
     note right of Core #wheat:[SPEC] the expired key becomes DEPRECATED in every case below , kept for verification , a switched key signs new credentials | compromised key : Key-Compromise-sequence (VCVP Core 36)
     note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 13.7.7.1 (informative)  old key stays in assertionMethod
@@ -345,7 +345,7 @@ alt No ACTIVE key / key expired (Keys.ExpiryDate passed) , key selected by VCVP 
 
     note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.6 (MUST NOT)  no DID document key instead of the Trusted List key
     note right of Core #wheat:[SPEC] iss.txt is used only while it is usable (ETDA Trusted List Load) , an unusable list : no switch , 503 + Retry-After: 300 , TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE
-    Core->Core: Find the next reserved key of the DID that is listed for the issuer in the cached Issuer Trusted List (iss.txt , ETDA Trusted List Load)
+    Core->Core: Find the next reserved SIGNING key of the DID that is listed for the issuer in the cached Issuer Trusted List (iss.txt , ETDA Trusted List Load)
     alt A reserved key of the DID is listed in iss.txt
         note right of Core #wheat:[SPEC] the reserved key is already in the DID (added when the DID was created , VCVP Core 03)\nthe switch changes only Keys.Status , no engine call , the next issuance sends the new key as issuerKey
         Core->Core: Switch issuerKey to the next reserved key in the DID\n(Keys.Status RESERVED → ACTIVE)
@@ -356,8 +356,8 @@ alt No ACTIVE key / key expired (Keys.ExpiryDate passed) , key selected by VCVP 
         Mini<--DW: Error (response of 1.2) | reason = ISSUER_KEY_NOT_LISTED
         Mini-->User: Show error , credential not added (reason)
         note over User,Mini #wheat: Issuance stops here , credential not added , sections 5.3 to 11 do not apply
-    else No reserved key left in the DID
-        note right of Core #wheat:[SPEC] no key is created during issuance , the agency creates a key (VCVP Core 02) and adds it to the DID (VCVP Core 40) in setup
+    else No reserved SIGNING key left in the DID
+        note right of Core #wheat:[SPEC] no key is created during issuance , the agency creates a SIGNING key (VCVP Core 02) and adds it to the DID (VCVP Core 40) in setup
         note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.6 (MUST)  Trusted List update within 24 hours after a rotation
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = ISSUER_KEY_EXPIRED)
 
