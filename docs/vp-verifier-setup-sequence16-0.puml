@@ -163,18 +163,18 @@ else Caller authorized
     Core->VPEngine: Get imported schema | GET /api/credential-schema/v2/{id}
     VPEngine-->Core: schema (claims[] id , key)
     Core->Core: Check the requested claims exist in claims[].key of that schema , otherwise 400 FailureReason = REQUEST_REJECTED
-    Core->Core: Check expire_duration_sec : when sent , an integer from 1 to 3600 , otherwise 400 FailureReason = REQUEST_REJECTED | not sent : 3600
+    Core->Core: Check expire_duration_sec : when sent , an integer from 1 to the maximum claim retention (VCVP setting , default 3600 seconds) , otherwise 400 FailureReason = REQUEST_REJECTED\nnot sent : the default claim retention (VCVP setting)
     note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 7.2 item 3  the wallet enforces the purposes and allowed claims of the verifier\n• appendix 8.2 E.1.5 (MUST)  claims path and purpose within the scope allowed for the verifier , otherwise rejected
     note right of Core #wheat:[SPEC] decided by ETDA after discussion : checking the requested claims against ver.txt is phase 2 work , not done in phase 1
     Core->Core: Check the requested claims are within the claims allowed for this verifier in the Verifier Trusted List (ver.txt)
     note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 7.7 item 3 (MUST)  check the schema version , not the type name only
     note right of Core #wheat:[SPEC] the vct contains the schema id , a new schema version is a new schema with a new vct and new type metadata\nthe vct and vct#integrity of the presented credential are checked in VP part 2 , section 7.2
-    note right of VPEngine #wheat:[ENGINE RULE] expireDuration is how long the engine keeps the received claim values after the check\n(retainUntilDate = completedDate + expireDuration , then the engine deletes them)\nIt is not the lifetime of the verification link (the link lives 1 hour)
+    note right of VPEngine #wheat:[ENGINE RULE] expireDuration is how long the engine keeps the received claim values after the check\n(retainUntilDate = completedDate + expireDuration , the engine deletes them only when its retention task is run , VCVP does not run it)\nIt is not the lifetime of the verification link (the link lives 1 hour)
     note right of Core #wheat:[STANDARD] RFC 9901 (SD-JWT)\n• 10.2 (SHOULD NOT)  after verification the verifier does not store the issuer-signed JWT or the disclosures
-    note right of Core #wheat:[SPEC] expireDuration = expire_duration_sec (default 3600 , at most 3600)
+    note right of Core #wheat:[SPEC] expireDuration = the maximum claim retention (VCVP setting , default 3600 seconds) , not expire_duration_sec\nexpire_duration_sec = seconds the claim values are kept after their first delivery (VCVP Core 32) , then VCVP Core 48 deletes them (VP part 2 , section 9.2)
     Core->VPEngine: Define verification requirements | POST /api/proof-schema/v1\nname , organisationId , expireDuration , proofInputSchemas [ credentialSchemaId , claimSchemas [ id , required ] ]
     VPEngine-->Core: id
-    Core->Core: [DATA STORE] Store VerificationTemplates table (VerificationTemplateId = id from the engine)
+    Core->Core: [DATA STORE] Store VerificationTemplates table (VerificationTemplateId = id from the engine , ExpireDurationSec)
     Core->Core: [AUDIT LOG] Write audit record of VCVP Core 23 (EventType = VERIFICATION_TEMPLATE_CREATED) : who created which verification template (EngineCalls)
     VSys<--Core: 200 | verification_template_id
     Officer<--VSys: Verification template ready
