@@ -7,7 +7,7 @@ participant "<color:#white>Document Wallet (Miniapp)</color>" as Mini #2E7D32
 participant "<color:#white>DW Core</color>" as DW #steelblue
 participant "Verifier Officer" as Officer
 participant "<color:#white>Verifier Toolkit</color>" as VSys #6A1B9A
-participant "<color:#white>VCVP Core claim-delete job</color>" as Job #3F51B5
+participant "<color:#white>VCVP Core batch job</color>" as Job #3F51B5
 participant "<color:#white>VCVP Core</color>" as Core #3F51B5
 participant "<color:#white>one-core (VP Engine)</color>" as VPEngine #chocolate
 participant "<color:#white>one-core (VC Engine)</color>" as VCEngine #chocolate
@@ -427,9 +427,9 @@ Core->Core: [AUDIT LOG] Write audit record of VCVP Core 32\n(EventType = VERIFIC
 
 note over Job,VPEngine #khaki: 9.2 VCVP Core deletes the claim values that are due (VCVP Core 48)
 note right of Core #wheat:[SPEC] VCVP policy : ClaimsExpiredAt = VerifiedAt + the maximum claim retention (VCVP setting , default 3600 seconds) when the result arrives (VCVP Core 29 , 30)\nafter the first delivery of claim values : ClaimsDeliveredAt + ExpireDurationSec of the template (VCVP Core 32)\nthe engine retention task is not run , VCVP Core 48 deletes the values
-note right of Job #wheat:[SPEC] runs inside VCVP Core , first run when the service starts , then every interval set by VCVP , Actor SYSTEM
+note right of Job #wheat:[SPEC] the batch job runs inside VCVP Core , first run when the service starts , then every interval set by VCVP , Actor SYSTEM
 Job->Job: Start a run (timer)
-note right of Job #wheat:[SPEC] one VCVP Core instance runs the job at a time\nan instance that stops during a run : the lock ends by itself at LockedUntil | the previous run not finished : the next run is skipped
+note right of Job #wheat:[SPEC] one VCVP Core instance runs the batch job at a time\nan instance that stops during a run : the lock ends by itself at LockedUntil | the previous run not finished : the next run is skipped
 Job->Job: [DATA STORE] Take the lock in JobLocks table (JobName = CLAIMS_DELETE)\none update only when LockedUntil < now : LockedBy , LockedUntil , UpdatedAt
 alt Lock not taken (another instance holds it)
     Job->Job: Skip this run
