@@ -50,26 +50,27 @@ alt Counter not found or inactive , verifier not trusted or scan limit reached
     Mini-->User: Cannot verify at this counter
 else Counter active
     Core->Core: Check verifierKey (Keys.ExpiryDate)
+    note right of Core #wheat:[STANDARD] NIST SP 800-57 Part 1 Rev. 5\n• 5.3  a key is not used after its cryptoperiod
     alt verifierKey expired (Keys.ExpiryDate passed)
         note right of Core #wheat:[SPEC] the expired key becomes DEPRECATED in every case below , a switched key signs new request objects
         Core->Core: Mark the expired key as DEPRECATED (Keys.Status)
         note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.2.1 (MUST)  verifier public key in the Verifier Trusted List entry or a did:web DID document at /.well-known/did.json
         Core->Core: Find a reserved SIGNING key of the verifier identity (KeyUsage = SIGNING , Status = RESERVED , IssueDate reached)\nlisted for the verifier in the cached Verifier Trusted List (ver.txt , ETDA Trusted List Load) , take the oldest IssueDate (same date : oldest CreatedAt)
         alt A reserved SIGNING key is usable (listed in ver.txt , IssueDate reached)
-            note right of Core #wheat:[SPEC] the reserved key is already in the DID (added when the DID was created , VCVP Core 03)\nVCVP policy : the switch updates the DID , the old key leaves authentication and stays in assertionMethod when it is there
+            note right of Core #wheat:[SPEC] the reserved key is already in the DID (added at VCVP Core 03 or VCVP Core 40)\nVCVP policy : the switch updates the DID , the old key leaves authentication and stays in assertionMethod when it is there
             Core->Core: Switch verifierKey to the selected reserved key\n(Keys.Status RESERVED → ACTIVE)
             Core->VPEngine: Update the DID keys | PATCH /api/identifier/v1/{id}\ndid.keys
             VPEngine-->Core: 204
         else Reserved SIGNING keys left , none usable yet (not listed in ver.txt or IssueDate not reached)
             Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 42 (FailureReason = VERIFIER_KEY_NOT_LISTED)
-            DW<--Core: 409 | error = invalid_request , vcvp_failure_reason = VERIFIER_KEY_NOT_LISTED
+            DW<--Core: 400 | error = invalid_request , vcvp_failure_reason = VERIFIER_KEY_NOT_LISTED
             Mini<--DW: Error (response of /dw/v1/presentation/start) | invalid_request
             Mini-->User: Cannot verify at this counter
             note over User,Mini #wheat: No verification request for this scan , the rest of this flow does not apply
         else No reserved SIGNING key left
             note right of Core #wheat:[SPEC] no key is created during the request , the organisation creates a SIGNING key (VCVP Core 02) and adds it to the DID (VCVP Core 40)
             Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 42 (FailureReason = VERIFIER_KEY_EXPIRED)
-            DW<--Core: 409 | error = invalid_request , vcvp_failure_reason = VERIFIER_KEY_EXPIRED
+            DW<--Core: 400 | error = invalid_request , vcvp_failure_reason = VERIFIER_KEY_EXPIRED
             Mini<--DW: Error (response of /dw/v1/presentation/start) | invalid_request
             Mini-->User: Cannot verify at this counter
             note over User,Mini #wheat: No verification request for this scan , the rest of this flow does not apply
