@@ -49,6 +49,33 @@ else Trusted List not usable
     Officer<--VSys: Show error , try again later
 else Verifier authorized and trusted
 
+    Core->Core: Check verifierKey (Keys.ExpiryDate)
+    alt verifierKey expired (Keys.ExpiryDate passed)
+        note right of Core #wheat:[SPEC] the expired key becomes DEPRECATED in every case below , a switched key signs new request objects
+        Core->Core: Mark the expired key as DEPRECATED (Keys.Status)
+        note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.2.1 (MUST)  verifier public key in the Verifier Trusted List entry or a did:web DID document at /.well-known/did.json
+        Core->Core: Find a reserved SIGNING key of the verifier identity (KeyUsage = SIGNING , Status = RESERVED , IssueDate reached)\nlisted for the verifier in the cached Verifier Trusted List (ver.txt , ETDA Trusted List Load) , take the oldest IssueDate (same date : oldest CreatedAt)
+        alt A reserved SIGNING key is usable (listed in ver.txt , IssueDate reached)
+            note right of Core #wheat:[SPEC] the reserved key is already in the DID (added when the DID was created , VCVP Core 03)\nVCVP policy : the switch updates the DID , the old key leaves authentication and stays in assertionMethod when it is there
+            Core->Core: Switch verifierKey to the selected reserved key\n(Keys.Status RESERVED → ACTIVE)
+            Core->VPEngine: Update the DID keys | PATCH /api/identifier/v1/{id}\ndid.keys
+            VPEngine-->Core: 204
+        else Reserved SIGNING keys left , none usable yet (not listed in ver.txt or IssueDate not reached)
+            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 24 (FailureReason = VERIFIER_KEY_NOT_LISTED)
+            VSys<--Core: 409 | failure_reason = VERIFIER_KEY_NOT_LISTED
+            Officer<--VSys: Show error , verification not created
+            note over Officer,VSys #wheat: Verification not created , sections 3 and 4 do not apply
+        else No reserved SIGNING key left
+            note right of Core #wheat:[SPEC] no key is created during the request , the organisation creates a SIGNING key (VCVP Core 02) and adds it to the DID (VCVP Core 40)
+            Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 24 (FailureReason = VERIFIER_KEY_EXPIRED)
+            VSys<--Core: 409 | failure_reason = VERIFIER_KEY_EXPIRED
+            Officer<--VSys: Show error , verification not created
+            note over Officer,VSys #wheat: Verification not created , sections 3 and 4 do not apply
+        end
+    else Key active
+        Core->Core: Continue
+    end
+
     note over Core,VPEngine #orange: 3. VCVP Core creates the proof request
     note right of Core #wheat:[SPEC] webhookDestinationUrl is sent on every request , the engine calls VCVP Core 30 when the result is ready\nthen VCVP Core calls Verifications.CallbackUrl when it has a value , null : the Verifier Toolkit asks for the result at VCVP Core 32 (VP part 2 , section 9)\nVCVP policy : a new random secret for each request , VCVP Core keeps only its hash
     Core->Core: Create the webhook secret (32 random bytes)\nwebhookDestinationUrl = URL of VCVP Core 30 + ?webhook_token={secret}

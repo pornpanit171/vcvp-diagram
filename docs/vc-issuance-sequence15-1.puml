@@ -345,11 +345,14 @@ alt No ACTIVE SIGNING key / key expired (Keys.ExpiryDate passed) , key selected 
 
     note right of Core #wheat:[STANDARD] Thai VC ARF 2.0 DRAFT 0\n• 12.6 (MUST NOT)  no DID document key instead of the Trusted List key
     note right of Core #wheat:[SPEC] iss.txt is used only while it is usable (ETDA Trusted List Load) , an unusable list : no switch , 503 + Retry-After: 300 , TRUST_LIST_EXPIRED / TRUST_LIST_UNAVAILABLE
-    Core->Core: Find the next reserved SIGNING key of the DID that is listed for the issuer in the cached Issuer Trusted List (iss.txt , ETDA Trusted List Load)
-    alt A reserved key of the DID is listed in iss.txt
-        note right of Core #wheat:[SPEC] the reserved key is already in the DID (added when the DID was created , VCVP Core 03)\nthe switch changes only Keys.Status , no engine call , the next issuance sends the new key as issuerKey
-        Core->Core: Switch issuerKey to the next reserved key in the DID\n(Keys.Status RESERVED → ACTIVE)
-    else Reserved keys left , none listed in iss.txt yet
+    Core->Core: Find a reserved SIGNING key of the DID (KeyUsage = SIGNING , Status = RESERVED , IssueDate reached)\nlisted for the issuer in the cached Issuer Trusted List (iss.txt , ETDA Trusted List Load) , take the oldest IssueDate (same date : oldest CreatedAt)
+    alt A reserved SIGNING key of the DID is usable (listed in iss.txt , IssueDate reached)
+        note right of Core #wheat:[SPEC] the reserved key is already in the DID (added when the DID was created , VCVP Core 03)\nthe next issuance sends the new key as issuerKey
+        note right of Core #wheat:[SPEC] VCVP policy : the switch updates the DID , the old key leaves authentication and stays in assertionMethod when it is there
+        Core->Core: Switch issuerKey to the selected reserved key in the DID\n(Keys.Status RESERVED → ACTIVE)
+        Core->VCEngine: Update the DID keys | PATCH /api/identifier/v1/{id}\ndid.keys
+        VCEngine-->Core: 204
+    else Reserved SIGNING keys left , none usable yet (not listed in iss.txt or IssueDate not reached)
         Core->Core: [ERROR AUDIT] Write audit record of VCVP Core 08 (FailureReason = ISSUER_KEY_NOT_LISTED)
         DW<--Core: 409 | failure_reason = ISSUER_KEY_NOT_LISTED
         DW->DW: Update issuance request status = ISSUER_KEY_NOT_LISTED\n(credential not issued)
